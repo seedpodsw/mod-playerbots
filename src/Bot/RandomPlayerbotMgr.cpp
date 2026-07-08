@@ -1341,12 +1341,37 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     uint32 isValid = GetEventValue(bot, "add");
     if (!isValid)
     {
-        // Rotation supersedes the nearby group: leave it now so the logout below can
-        // proceed once the leave has been processed. Keeps population near MaxRandomBots.
-        if (player && IsBotLedNearbyGroup(player->GetGroup()))
+        // Rotation supersedes all-bot groups: leave now so logout can proceed on a later
+        // tick once the leave packet is processed. Preserve player-driven parties.
+        if (player && player->GetGroup() && botAI)
         {
-            if (botAI)
-                botAI->LeaveOrDisbandGroup();
+            Group* group = player->GetGroup();
+            if (!group->isLFGGroup() && !group->isBGGroup())
+            {
+                bool hasRealPlayer = false;
+                for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+                {
+                    Player* member = gref->GetSource();
+                    if (!member)
+                        continue;
+
+                    if (!GET_PLAYERBOT_AI(member))
+                    {
+                        hasRealPlayer = true;
+                        break;
+                    }
+
+                    PlayerbotAI* memberAI = GET_PLAYERBOT_AI(member);
+                    if (memberAI->IsRealPlayer() || memberAI->HasRealPlayerMaster())
+                    {
+                        hasRealPlayer = true;
+                        break;
+                    }
+                }
+
+                if (!hasRealPlayer)
+                    botAI->LeaveOrDisbandGroup();
+            }
         }
 
         if (!player || !player->GetGroup())
@@ -1397,7 +1422,12 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     if (!player->IsInWorld())
         return false;
 
-    if (player->GetGroup() || player->HasUnitState(UNIT_STATE_IN_FLIGHT))
+    if (player->HasUnitState(UNIT_STATE_IN_FLIGHT))
+        return false;
+
+    // Non-nearby grouped bots skip mgr lifecycle; nearby groups fall through so
+    // ProcessBot(Player*) can run death/revive (randomize/teleport gated inside).
+    if (player->GetGroup() && !IsBotLedNearbyGroup(player->GetGroup()))
         return false;
 
     uint32 update = GetEventValue(bot, "update");
@@ -1989,7 +2019,7 @@ void RandomPlayerbotMgr::RandomizeFirst(Player* bot)
     // teleport to a random inn for bot level
     botAI->Reset(true);
 
-    if (bot->GetGroup())
+    if (bot->GetGroup() && !IsBotLedNearbyGroup(bot->GetGroup()))
         botAI->LeaveOrDisbandGroup();
 
     if (pmo)
@@ -2030,7 +2060,7 @@ void RandomPlayerbotMgr::RandomizeMin(Player* bot)
     // teleport to a random inn for bot level
     botAI->Reset(true);
 
-    if (bot->GetGroup())
+    if (bot->GetGroup() && !IsBotLedNearbyGroup(bot->GetGroup()))
         botAI->LeaveOrDisbandGroup();
 
     if (pmo)

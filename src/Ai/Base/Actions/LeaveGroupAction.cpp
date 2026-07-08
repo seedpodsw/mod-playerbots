@@ -9,6 +9,7 @@
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 
 bool LeaveGroupAction::Execute(Event event)
 {
@@ -110,6 +111,11 @@ bool LeaveFarAwayAction::isUseful()
         return false;
 
     if (!bot->GetGroup())
+        return false;
+
+    // Persistent nearby groups rely on members staying together — distance/level decay
+    // would dissolve the party during normal follow lag.
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
         return false;
 
     Player* groupLeader = botAI->GetGroupLeader();

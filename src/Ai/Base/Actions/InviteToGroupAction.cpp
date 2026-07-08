@@ -433,37 +433,6 @@ bool LfgAction::Execute(Event event)
 
     bool invite = Invite(requester, bot);
 
-    if (invite)
-    {
-        Event acceptEvent("accept invitation", requester ? requester->GetGUID() : ObjectGuid::Empty);
-        if (!botAI->DoSpecificAction("accept invitation", acceptEvent, true))
-            return false;
-
-        std::map<std::string, std::string> placeholders;
-        placeholders["%role"] = (role & BOT_ROLE_TANK ? "tank" : (role & BOT_ROLE_HEALER ? "healer" : "dps"));
-        placeholders["%spotsleft"] = std::to_string(allowedRoles[role] - 1);
-
-        std::ostringstream out;
-        if (allowedRoles[role] > 1)
-        {
-            out << "Joining as " << placeholders["%role"] << ", " << placeholders["%spotsleft"] << " "
-                << placeholders["%role"] << " spots left.";
-            botAI->TellMasterNoFacing(out.str());
-
-            //botAI->DoSpecificAction("autogear");
-            //botAI->DoSpecificAction("maintenance");
-        }
-        else
-        {
-            out << "Joining as " << placeholders["%role"] << ".";
-            botAI->TellMasterNoFacing(out.str());
-
-            //botAI->DoSpecificAction("autogear");
-            //botAI->DoSpecificAction("maintenance");
-        }
-
-        return true;
-    }
-
-    return false;
+    // Accept happens asynchronously via SMSG_GROUP_INVITE -> AcceptInvitationAction
+    return invite;
 }

@@ -917,7 +917,8 @@ void PlayerbotAI::LeaveOrDisbandGroup()
     if (!bot || !bot->GetGroup() || IsRealPlayer())
         return;
 
-    WorldPacket* packet = new WorldPacket(CMSG_GROUP_DISBAND);
+    Group* group = bot->GetGroup();
+    WorldPacket* packet = new WorldPacket(group->IsLeader(bot->GetGUID()) ? CMSG_GROUP_DISBAND : CMSG_GROUP_LEAVE);
     bot->GetSession()->QueuePacket(packet);
 }
 

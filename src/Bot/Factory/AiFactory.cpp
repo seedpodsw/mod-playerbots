@@ -598,10 +598,14 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
         bool isNearbyGroupMember = sRandomPlayerbotMgr.IsBotLedNearbyGroup(player->GetGroup()) &&
                                    player->GetGroup()->GetLeaderGUID() != player->GetGUID();
+        bool isNearbyGroupLeader = player->GetGroup() &&
+                                   sRandomPlayerbotMgr.IsBotLedNearbyGroup(player->GetGroup()) &&
+                                   player->GetGroup()->GetLeaderGUID() == player->GetGUID();
+        bool inNearbyGroup = isNearbyGroupMember || isNearbyGroupLeader;
 
-        // Nearby-group members must not queue LFG independently — they follow their leader.
-        // Without this, every ResetStrategies() would undo the -lfg set on group join.
-        if (sPlayerbotAIConfig.randomBotJoinLfg && !isNearbyGroupMember)
+        // Nearby-group bots must not queue LFG/BG independently — they follow their leader
+        // or lead the ambient party without dragging it into queues.
+        if (sPlayerbotAIConfig.randomBotJoinLfg && !inNearbyGroup)
             nonCombatEngine->addStrategy("lfg", false);
 
         if (!player->GetGroup() || player->GetGroup()->GetLeaderGUID() == player->GetGUID())
@@ -618,7 +622,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             if (sPlayerbotAIConfig.randomBotGroupNearby)
                 nonCombatEngine->addStrategy("group", false);
 
-            nonCombatEngine->addStrategy("grind", false);
+            if (!isNearbyGroupLeader)
+                nonCombatEngine->addStrategy("grind", false);
 
             if (sPlayerbotAIConfig.enableNewRpgStrategy)
                 nonCombatEngine->addStrategy("new rpg", false);
@@ -630,7 +635,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             else
                 nonCombatEngine->addStrategy("move random", false);
 
-            if (sPlayerbotAIConfig.randomBotJoinBG)
+            if (sPlayerbotAIConfig.randomBotJoinBG && !isNearbyGroupLeader)
                 nonCombatEngine->addStrategy("bg", false);
 
             // if (!master || GET_PLAYERBOT_AI(master))

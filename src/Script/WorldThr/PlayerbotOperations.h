@@ -51,6 +51,12 @@ public:
             return false;
         }
 
+        if (target->GetGroupInvite())
+        {
+            LOG_DEBUG("playerbots", "GroupInviteOperation: Target {} already has a pending invite", target->GetName());
+            return false;
+        }
+
         Group* group = bot->GetGroup();
 
         // Create group if bot doesn't have one
@@ -149,7 +155,7 @@ public:
         p << target->GetName();
         p << rolesMask;
         inviter->GetSession()->HandleGroupInviteOpcode(p);
-        return true;
+        return target->GetGroupInvite() != nullptr;
     }
 
     ObjectGuid GetBotGuid() const override { return m_inviterGuid; }

@@ -118,7 +118,12 @@ bool BGJoinAction::gatherArenaTeam(ArenaType type)
                 continue;
 
             if (member->GetGroup())
+            {
+                if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(member->GetGroup()))
+                    continue;
+
                 member->GetGroup()->RemoveMember(member->GetGUID());
+            }
 
             memberBotAI->Reset();
         }

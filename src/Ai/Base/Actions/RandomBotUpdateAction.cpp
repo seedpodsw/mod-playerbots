@@ -17,13 +17,16 @@ bool RandomBotUpdateAction::Execute(Event /*event*/)
     {
         PlayerbotAI* groupLeaderBotAI = GET_PLAYERBOT_AI(botAI->GetGroupLeader());
         if (!groupLeaderBotAI || groupLeaderBotAI->IsRealPlayer())
+        {
+            botAI->GetAiObjectContext()->GetValue<bool>("random bot update")->Set(false);
             return true;
+        }
     }
 
-    if (botAI->HasPlayerNearby(sPlayerbotAIConfig.grindDistance))
-        return true;
-
-    return sRandomPlayerbotMgr.ProcessBot(bot);
+    // Always run death/revive/cleanup; randomize/teleport is gated inside ProcessBot(Player*)
+    sRandomPlayerbotMgr.ProcessBot(bot);
+    botAI->GetAiObjectContext()->GetValue<bool>("random bot update")->Set(false);
+    return true;
 }
 
 bool RandomBotUpdateAction::isUseful() { return AI_VALUE(bool, "random bot update"); }
