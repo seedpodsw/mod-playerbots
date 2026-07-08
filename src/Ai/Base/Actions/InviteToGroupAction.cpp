@@ -165,6 +165,8 @@ bool InviteNearbyToGroupAction::isUseful()
 std::vector<Player*> InviteGuildToGroupAction::getGuildMembers()
 {
     Guild* guild = sGuildMgr->GetGuildById(bot->GetGuildId());
+    if (!guild)
+        return {};
 
     FindGuildMembers worker;
     guild->BroadcastWorker(worker);

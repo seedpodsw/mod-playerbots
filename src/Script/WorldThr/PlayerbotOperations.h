@@ -404,6 +404,60 @@ private:
     ObjectGuid m_newLeaderGuid;
 };
 
+// Promote a new leader then remove the old one without disbanding the party.
+class GroupPromoteAndLeaveOperation : public PlayerbotOperation
+{
+public:
+    GroupPromoteAndLeaveOperation(ObjectGuid leavingLeaderGuid, ObjectGuid newLeaderGuid)
+        : m_leavingLeaderGuid(leavingLeaderGuid), m_newLeaderGuid(newLeaderGuid)
+    {
+    }
+
+    bool Execute() override
+    {
+        Player* leavingLeader = ObjectAccessor::FindPlayer(m_leavingLeaderGuid);
+        Player* newLeader = ObjectAccessor::FindPlayer(m_newLeaderGuid);
+        if (!leavingLeader || !newLeader)
+            return false;
+
+        Group* group = leavingLeader->GetGroup();
+        if (!group || !group->IsLeader(leavingLeader->GetGUID()))
+            return false;
+
+        if (!group->IsMember(newLeader->GetGUID()))
+            return false;
+
+        group->ChangeLeader(newLeader->GetGUID());
+        group->SendUpdate();
+
+        if (!group->RemoveMember(leavingLeader->GetGUID()))
+        {
+            WorldPacket packet(CMSG_GROUP_LEAVE);
+            leavingLeader->GetSession()->HandleGroupLeaveOpcode(packet);
+        }
+
+        LOG_DEBUG("playerbots", "GroupPromoteAndLeaveOperation: Promoted {} and removed {} from nearby group",
+                  newLeader->GetName(), leavingLeader->GetName());
+        return true;
+    }
+
+    ObjectGuid GetBotGuid() const override { return m_leavingLeaderGuid; }
+
+    uint32 GetPriority() const override { return 50; }
+
+    std::string GetName() const override { return "GroupPromoteAndLeave"; }
+
+    bool IsValid() const override
+    {
+        return ObjectAccessor::FindPlayer(m_leavingLeaderGuid) &&
+               ObjectAccessor::FindPlayer(m_newLeaderGuid);
+    }
+
+private:
+    ObjectGuid m_leavingLeaderGuid;
+    ObjectGuid m_newLeaderGuid;
+};
+
 // Form arena group
 class ArenaGroupFormationOperation : public PlayerbotOperation
 {

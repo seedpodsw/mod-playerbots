@@ -625,9 +625,9 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             if (!isNearbyGroupLeader)
                 nonCombatEngine->addStrategy("grind", false);
 
-            if (sPlayerbotAIConfig.enableNewRpgStrategy)
+            if (!isNearbyGroupLeader && sPlayerbotAIConfig.enableNewRpgStrategy)
                 nonCombatEngine->addStrategy("new rpg", false);
-            else if (sPlayerbotAIConfig.autoDoQuests)
+            else if (!isNearbyGroupLeader && sPlayerbotAIConfig.autoDoQuests)
             {
                 // nonCombatEngine->addStrategy("travel");
                 nonCombatEngine->addStrategy("rpg", false);
@@ -680,8 +680,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                             nonCombatEngine->addStrategy("follow", false);
                             nonCombatEngine->addStrategy("group", false);
                         }
-
-                        nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
+                        else
+                            nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
                     }
                     else
                     {

@@ -176,7 +176,19 @@ bool AutoReleaseSpiritAction::ShouldAutoRelease() const
         return true;
 
     if (!botAI->HasActivePlayerMaster())
+    {
+        if (groupLeader && sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+        {
+            if (groupLeader->IsAlive())
+                return false;
+
+            return ServerFacade::instance().IsDistanceGreaterThan(
+                AI_VALUE2(float, "distance", "group leader"),
+                sPlayerbotAIConfig.sightDistance);
+        }
+
         return true;
+    }
 
     if (botAI->HasActivePlayerMaster() &&
         groupLeader->GetMapId() == bot->GetMapId() &&

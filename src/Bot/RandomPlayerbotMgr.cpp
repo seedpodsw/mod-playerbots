@@ -8,6 +8,7 @@
 #include <WorldSessionMgr.h>
 
 #include <algorithm>
+#include <memory>
 #include <boost/thread/thread.hpp>
 #include <cstdlib>
 #include <ctime>
@@ -34,7 +35,9 @@
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotFactory.h"
+#include "PlayerbotOperations.h"
 #include "PlayerbotTextMgr.h"
+#include "PlayerbotWorldThreadProcessor.h"
 #include "Playerbots.h"
 #include "Position.h"
 #include "RaceMgr.h"
@@ -1370,7 +1373,38 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
                 }
 
                 if (!hasRealPlayer)
-                    botAI->LeaveOrDisbandGroup();
+                {
+                    if (IsBotLedNearbyGroup(group) && group->IsLeader(player->GetGUID()))
+                    {
+                        ObjectGuid newLeaderGuid;
+                        for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+                        {
+                            Player* member = gref->GetSource();
+                            if (!member || member == player)
+                                continue;
+
+                            if (!GET_PLAYERBOT_AI(member))
+                                continue;
+
+                            uint32 memberBot = member->GetGUID().GetCounter();
+                            if (!GetEventValue(memberBot, "add"))
+                                continue;
+
+                            newLeaderGuid = member->GetGUID();
+                            break;
+                        }
+
+                        if (newLeaderGuid)
+                        {
+                            auto op = std::make_unique<GroupPromoteAndLeaveOperation>(player->GetGUID(), newLeaderGuid);
+                            PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(op));
+                        }
+                        else
+                            botAI->LeaveOrDisbandGroup();
+                    }
+                    else
+                        botAI->LeaveOrDisbandGroup();
+                }
             }
         }
 
