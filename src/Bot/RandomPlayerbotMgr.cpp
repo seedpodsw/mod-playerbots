@@ -1341,6 +1341,14 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     uint32 isValid = GetEventValue(bot, "add");
     if (!isValid)
     {
+        // Rotation supersedes the nearby group: leave it now so the logout below can
+        // proceed once the leave has been processed. Keeps population near MaxRandomBots.
+        if (player && IsBotLedNearbyGroup(player->GetGroup()))
+        {
+            if (botAI)
+                botAI->LeaveOrDisbandGroup();
+        }
+
         if (!player || !player->GetGroup())
         {
             if (player)
@@ -1480,13 +1488,19 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
         return false;
     }
 
-    // leave group if leader is rndbot
+    // leave group if leader is rndbot (unless it is a persistent RandomBotGroupNearby group)
     Group* group = bot->GetGroup();
-    if (group && !group->isLFGGroup() && IsRandomBot(group->GetLeader()))
+    if (group && !group->isLFGGroup() && IsRandomBot(group->GetLeader()) && !IsBotLedNearbyGroup(group))
     {
         botAI->LeaveOrDisbandGroup();
         LOG_INFO("playerbots", "Bot {} remove from group since leader is random bot.", bot->GetName().c_str());
     }
+
+    // Persistent nearby groups skip the rest of the lifecycle (randomize/teleport) so the
+    // group stays together. Reached via RandomBotUpdateAction, which bypasses the grouped
+    // early-out in ProcessBot(uint32); death/revive was already handled above.
+    if (IsBotLedNearbyGroup(bot->GetGroup()))
+        return false;
 
     // only randomize and teleport idle bots
     bool idleBot = false;
@@ -1571,7 +1585,10 @@ void RandomPlayerbotMgr::Revive(Player* player)
     SetEventValue(bot, "revive", 0, 0);
 
     Refresh(player);
-    RandomTeleportGrindForLevel(player);
+
+    // Revive nearby-grouped bots in place — teleporting would strand them away from the group
+    if (!IsBotLedNearbyGroup(player->GetGroup()))
+        RandomTeleportGrindForLevel(player);
 }
 
 void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>& locs, bool hearth)
@@ -1594,6 +1611,10 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>&
 
     // ignore when in group (e.g. world, dungeons, raids) and leader is not a player.
     if (bot->GetGroup() && !bot->GetGroup()->IsLeader(bot->GetGUID()))
+        return;
+
+    // ignore leaders of persistent nearby groups — teleporting would strand the members.
+    if (IsBotLedNearbyGroup(bot->GetGroup()))
         return;
 
     PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
@@ -2091,11 +2112,35 @@ void RandomPlayerbotMgr::Refresh(Player* bot)
     uint32 money = bot->GetMoney();
     bot->SetMoney(money + 500 * sqrt(urand(1, bot->GetLevel() * 5)));
 
-    if (bot->GetGroup())
+    // Refresh is routine maintenance — keep persistent nearby groups together
+    if (bot->GetGroup() && !IsBotLedNearbyGroup(bot->GetGroup()))
         botAI->LeaveOrDisbandGroup();
 
     if (pmo)
         pmo->finish();
+}
+
+bool RandomPlayerbotMgr::IsBotLedNearbyGroup(Group* group)
+{
+    if (!sPlayerbotAIConfig.randomBotGroupNearby || !group)
+        return false;
+
+    if (group->isLFGGroup() || group->isBGGroup())
+        return false;
+
+    ObjectGuid leaderGuid = group->GetLeaderGUID();
+    if (!IsRandomBot(leaderGuid.GetCounter()))
+        return false;
+
+    // A real player (or a bot mastered by one) leading means this is a player-driven group.
+    if (Player* leader = ObjectAccessor::FindPlayer(leaderGuid))
+    {
+        PlayerbotAI* leaderAI = GET_PLAYERBOT_AI(leader);
+        if (!leaderAI || leaderAI->IsRealPlayer() || leaderAI->HasRealPlayerMaster())
+            return false;
+    }
+
+    return true;
 }
 
 bool RandomPlayerbotMgr::IsRandomBot(Player* bot)

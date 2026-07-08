@@ -8,59 +8,34 @@
 #include "Event.h"
 #include "ObjectAccessor.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotOperations.h"
 #include "PlayerbotSecurity.h"
-#include "PlayerbotTextMgr.h"
+#include "PlayerbotWorldThreadProcessor.h"
 #include "Playerbots.h"
 #include "WorldPacket.h"
 
-bool AcceptInvitationAction::Execute(Event event)
+bool AcceptInvitationAction::Execute(Event /*event*/)
 {
     Group* grp = bot->GetGroupInvite();
     if (!grp)
         return false;
-    WorldPacket packet = event.getPacket();
-    uint8 flag;
-    std::string name;
-    packet >> flag >> name;
 
     Player* inviter = ObjectAccessor::FindPlayer(grp->GetLeaderGUID());
+
+    // Decline instead of leaving the invite dangling: an unanswered invite blocks the bot
+    // from ever being invited again, and blocks the inviter's pending slot.
+    bool accept = true;
     if (!inviter)
-        return false;
+        accept = false;
+    else if (bot->GetGroup())  // Stale invite that raced with another group join.
+        accept = false;
+    else if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, inviter))
+        accept = false;
 
-    if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, inviter))
-    {
-        WorldPacket data(SMSG_GROUP_DECLINE, 10);
-        data << bot->GetName();
-        inviter->SendDirectMessage(&data);
-        bot->UninviteFromGroup();
-        return false;
-    }
+    // Group modifications must run on the world thread; the operation re-validates state
+    // and performs the post-accept AI setup (master, follow strategies, summon).
+    auto answerOp = std::make_unique<GroupAnswerInviteOperation>(bot->GetGUID(), accept);
+    PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(answerOp));
 
-    if (bot->isAFK())
-        bot->ToggleAFK();
-
-    WorldPacket p;
-    uint32 roles_mask = 0;
-    p << roles_mask;
-    bot->GetSession()->HandleGroupAcceptOpcode(p);
-
-    if (!bot->GetGroup() || !bot->GetGroup()->IsMember(inviter->GetGUID()))
-        return false;
-
-    if (sRandomPlayerbotMgr.IsRandomBot(bot))
-        botAI->SetMaster(inviter);
-    // else
-    // PlayerbotRepository::instance().Save(botAI);
-
-    botAI->ResetStrategies();
-    botAI->ChangeStrategy("+follow,-lfg,-bg", BOT_STATE_NON_COMBAT);
-    botAI->Reset();
-
-    botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault("hello", "Hello", {}));
-
-    if (sPlayerbotAIConfig.summonWhenGroup && bot->GetDistance(inviter) > sPlayerbotAIConfig.sightDistance)
-    {
-        Teleport(inviter, bot, true);
-    }
-    return true;
+    return accept;
 }

@@ -16,7 +16,18 @@
 
 using namespace lfg;
 
-bool LfgJoinAction::Execute(Event /*event*/) { return JoinLFG(); }
+bool LfgJoinAction::Execute(Event /*event*/)
+{
+    // LFG supersedes the ambient nearby group: leave it now and queue solo on a later
+    // tick, instead of dragging the whole party into the dungeon finder.
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+    {
+        botAI->LeaveOrDisbandGroup();
+        return false;
+    }
+
+    return JoinLFG();
+}
 
 uint32 LfgJoinAction::GetRoles()
 {
@@ -200,7 +211,8 @@ bool LfgAcceptAction::Execute(Event event)
     // Try accept if already stored
     if (id)
     {
-        if (bot->IsInCombat() || bot->isDead())
+        // Decline while in a nearby group — the proposal would drag the party into a dungeon
+        if (bot->IsInCombat() || bot->isDead() || sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
         {
             WorldPacket* packet = new WorldPacket(CMSG_LFG_PROPOSAL_RESULT);
             *packet << id << false;
@@ -235,7 +247,8 @@ bool LfgAcceptAction::Execute(Event event)
 
         if (id)
         {
-            if (bot->IsInCombat() || bot->isDead())
+            // Decline while in a nearby group — the proposal would drag the party into a dungeon
+            if (bot->IsInCombat() || bot->isDead() || sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
             {
                 WorldPacket* packet = new WorldPacket(CMSG_LFG_PROPOSAL_RESULT);
                 *packet << id << false;

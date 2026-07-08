@@ -544,7 +544,10 @@ public:
     // Checks if the bot is summoned as alt of a player
     bool IsAlt();
     Player* GetGroupLeader();
-    uint32 GetFixedBotNumber(uint32 maxNum = 100);
+    // Stable per-bot number, salted per trait — use for persistent bot identity (grouper/guilder type).
+    uint32 GetFixedBotNumber(BotTypeNumber typeNumber, uint32 maxNum = 100);
+    // Reshuffles every BotActiveAloneDurationSeconds — use only for the activity rotation.
+    uint32 GetRotatingBotNumber(uint32 maxNum = 100);
     GrouperType GetGrouperType();
     GuilderType GetGuilderType();
     bool HasPlayerNearby(WorldPosition* pos, float range = sPlayerbotAIConfig.reactDistance);

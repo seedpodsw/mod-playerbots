@@ -16,6 +16,15 @@
 
 bool BGJoinAction::Execute(Event /*event*/)
 {
+    // BG events supersede the ambient nearby group: leave it now (queued to the world
+    // thread) and queue for the BG solo on a later tick, instead of dragging the whole
+    // party in via a group join. Groups re-form organically afterward.
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+    {
+        botAI->LeaveOrDisbandGroup();
+        return false;
+    }
+
     uint32 queueType = AI_VALUE(uint32, "bg type");
     if (!queueType)  // force join to fill bg
     {

@@ -596,7 +596,12 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
         if (!urand(0, 3))
             nonCombatEngine->addStrategy("start duel", false);
 
-        if (sPlayerbotAIConfig.randomBotJoinLfg)
+        bool isNearbyGroupMember = sRandomPlayerbotMgr.IsBotLedNearbyGroup(player->GetGroup()) &&
+                                   player->GetGroup()->GetLeaderGUID() != player->GetGUID();
+
+        // Nearby-group members must not queue LFG independently — they follow their leader.
+        // Without this, every ResetStrategies() would undo the -lfg set on group join.
+        if (sPlayerbotAIConfig.randomBotJoinLfg && !isNearbyGroupMember)
             nonCombatEngine->addStrategy("lfg", false);
 
         if (!player->GetGroup() || player->GetGroup()->GetLeaderGUID() == player->GetGUID())
@@ -607,8 +612,12 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
             // nonCombatEngine->addStrategy("pvp", false);
             // nonCombatEngine->addStrategy("collision");
-            // nonCombatEngine->addStrategy("group");
             // nonCombatEngine->addStrategy("guild");
+
+            // Nearby grouping (invite nearby / invite guild / leave far away)
+            if (sPlayerbotAIConfig.randomBotGroupNearby)
+                nonCombatEngine->addStrategy("group", false);
+
             nonCombatEngine->addStrategy("grind", false);
 
             if (sPlayerbotAIConfig.enableNewRpgStrategy)
@@ -655,6 +664,17 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
                         // if (masterBotAI)
                         //     nonCombatEngine->addStrategy("maintenance");
+
+                        // Nearby-group members follow their bot leader; make the strategy
+                        // survive any ResetStrategies() instead of relying on the one-shot
+                        // "+follow" applied when the invite was accepted. The "group"
+                        // strategy gives members natural decay via "leave far away"
+                        // (its invite triggers are leader-gated, so inert for members).
+                        if (isNearbyGroupMember)
+                        {
+                            nonCombatEngine->addStrategy("follow", false);
+                            nonCombatEngine->addStrategy("group", false);
+                        }
 
                         nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
                     }

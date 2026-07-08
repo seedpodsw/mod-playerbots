@@ -24,6 +24,10 @@ bool InviteToGroupAction::Invite(Player* inviter, Player* player)
     if (!GET_PLAYERBOT_AI(player) && !botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, true, player))
         return false;
 
+    // Already grouped or has a pending invite — inviting again would silently fail
+    if (player->GetGroup() || player->GetGroupInvite())
+        return false;
+
     if (Group* group = inviter->GetGroup())
     {
         if (GET_PLAYERBOT_AI(player) && !GET_PLAYERBOT_AI(player)->IsRealPlayer())
@@ -34,11 +38,9 @@ bool InviteToGroupAction::Invite(Player* inviter, Player* player)
             }
     }
 
-    WorldPacket p;
-    uint32 roles_mask = 0;
-    p << player->GetName();
-    p << roles_mask;
-    inviter->GetSession()->HandleGroupInviteOpcode(p);
+    // Group modifications must run on the world thread
+    auto inviteOp = std::make_unique<GroupInviteRequestOperation>(inviter->GetGUID(), player->GetGUID());
+    PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(inviteOp));
 
     return true;
 }
@@ -61,7 +63,13 @@ bool InviteNearbyToGroupAction::Execute(Event /*event*/)
         if (player->GetGroup())
             continue;
 
-        if (!PlayerbotAIConfig::instance().randomBotInvitePlayer && GET_PLAYERBOT_AI(player)->IsRealPlayer())
+        if (player->GetGroupInvite())  // Someone else already invited them.
+            continue;
+
+        // GET_PLAYERBOT_AI returns nullptr for real players — must be null-safe
+        PlayerbotAI* playerAI = GET_PLAYERBOT_AI(player);
+
+        if (!PlayerbotAIConfig::instance().randomBotInvitePlayer && (!playerAI || playerAI->IsRealPlayer()))
             continue;
 
         Group* group = bot->GetGroup();
@@ -72,15 +80,14 @@ bool InviteNearbyToGroupAction::Execute(Event /*event*/)
         if (player->IsBeingTeleported())
             continue;
 
-        PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
-
-        if (botAI)
+        // Check the candidate, not the inviter (which isUseful() already validated)
+        if (playerAI)
         {
-            if (botAI->GetGrouperType() == GrouperType::SOLO &&
-                !botAI->HasRealPlayerMaster())  // Do not invite solo players.
+            if (playerAI->GetGrouperType() == GrouperType::SOLO &&
+                !playerAI->HasRealPlayerMaster())  // Do not invite solo players.
                 continue;
 
-            if (botAI->HasActivePlayerMaster())  // Do not invite alts of active players.
+            if (playerAI->HasActivePlayerMaster())  // Do not invite alts of active players.
                 continue;
         }
 
@@ -180,10 +187,16 @@ bool InviteGuildToGroupAction::Execute(Event /*event*/)
         if (player->GetGroup())
             continue;
 
+        if (player->GetGroupInvite())  // Someone else already invited them.
+            continue;
+
         if (player->isDND())
             continue;
 
-        if (!PlayerbotAIConfig::instance().randomBotInvitePlayer && GET_PLAYERBOT_AI(player)->IsRealPlayer())
+        // GET_PLAYERBOT_AI returns nullptr for real players — must be null-safe
+        PlayerbotAI* playerAi = GET_PLAYERBOT_AI(player);
+
+        if (!PlayerbotAIConfig::instance().randomBotInvitePlayer && (!playerAi || playerAi->IsRealPlayer()))
             continue;
 
         if (player->IsBeingTeleported())
@@ -194,8 +207,6 @@ bool InviteGuildToGroupAction::Execute(Event /*event*/)
 
         if (WorldPosition(player).distance(bot) > 1000 && player->GetLevel() < 15)
             continue;
-
-        PlayerbotAI* playerAi = GET_PLAYERBOT_AI(player);
 
         if (playerAi)
         {

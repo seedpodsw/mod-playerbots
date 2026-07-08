@@ -518,6 +518,10 @@ void PlayerbotHolder::OnBotLogin(Player* const bot)
             }
         }
 
+        // Persistent nearby groups are all-bot by design — keep them across relogs/restarts
+        if (!groupValid)
+            groupValid = sRandomPlayerbotMgr.IsBotLedNearbyGroup(group);
+
         if (!groupValid)
         {
             botAI->LeaveOrDisbandGroup();

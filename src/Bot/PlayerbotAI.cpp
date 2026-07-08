@@ -441,7 +441,9 @@ void PlayerbotAI::UpdateAIGroupMaster()
     if (!master || (masterBotAI && !masterBotAI->IsRealPlayer()))
     {
         Player* newMaster = FindNewMaster();
-        if (newMaster)
+        // Only act on an actual change — with a bot master FindNewMaster can now return the
+        // same leader every tick, and re-applying it would reset strategies in a loop.
+        if (newMaster && newMaster != master)
         {
             master = newMaster;
             botAI->SetMaster(newMaster);
@@ -4452,6 +4454,16 @@ Player* PlayerbotAI::FindNewMaster()
             return member;
         }
     }
+
+    // Persistent nearby groups are bot-led on purpose: follow the bot leader so the
+    // follow/master chain survives leader changes and BG exits.
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+    {
+        Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID());
+        if (leader && leader != bot)
+            return leader;
+    }
+
     return nullptr;
 }
 
@@ -4480,7 +4492,26 @@ Player* PlayerbotAI::GetGroupLeader()
     return master;
 }
 
-uint32 PlayerbotAI::GetFixedBotNumber(uint32 maxNum)
+uint32 PlayerbotAI::GetFixedBotNumber(BotTypeNumber typeNumber, uint32 maxNum)
+{
+    if (maxNum == 0)
+        return 0;
+
+    // Deterministic pseudo-random hash based on the bot GUID, salted per trait so different
+    // traits (grouper/guilder) are uncorrelated. Stable across the bot's whole lifetime —
+    // social identity must not re-roll every activity rotation window.
+    uint32 id = bot->GetGUID().GetCounter();
+    uint32 h = id ^ (static_cast<uint32>(typeNumber) * 0x9e3779b9);
+    h ^= h >> 16;
+    h *= 0x7feb352d;
+    h ^= h >> 15;
+    h *= 0x846ca68b;
+    h ^= h >> 16;
+
+    return h % maxNum;
+}
+
+uint32 PlayerbotAI::GetRotatingBotNumber(uint32 maxNum)
 {
     if (maxNum == 0)
         return 0;
@@ -4517,7 +4548,7 @@ enum GrouperType
 
 GrouperType PlayerbotAI::GetGrouperType()
 {
-    uint32 grouperNumber = GetFixedBotNumber(100);
+    uint32 grouperNumber = GetFixedBotNumber(BotTypeNumber::GROUPER_TYPE_NUMBER, 100);
 
     if (grouperNumber < 20 && !HasRealPlayerMaster())
         return GrouperType::SOLO;
@@ -4539,7 +4570,7 @@ GrouperType PlayerbotAI::GetGrouperType()
 
 GuilderType PlayerbotAI::GetGuilderType()
 {
-    uint32 grouperNumber = GetFixedBotNumber(100);
+    uint32 grouperNumber = GetFixedBotNumber(BotTypeNumber::GUILDER_TYPE_NUMBER, 100);
 
     if (grouperNumber < 20 && !HasRealPlayerMaster())
         return GuilderType::SOLO;
@@ -4704,6 +4735,11 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
             {
                 if (!memberBotAI->AllowActivity(PARTY_ACTIVITY))
                     return false;
+
+                // leader is active: keep nearby-group members active too so they follow
+                // instead of freezing mid-travel while the leader walks away
+                if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+                    return true;
             }
         }
     }
@@ -4767,7 +4803,7 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
     }
 
     // deterministic rotation — bot is active if its hash falls below the threshold
-    uint32 ActivityNumber = GetFixedBotNumber(100);
+    uint32 ActivityNumber = GetRotatingBotNumber(100);
     return ActivityNumber < mod;
 }
 

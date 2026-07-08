@@ -969,8 +969,11 @@ AiPlayerbot.botActiveAloneSmartScaleWhenMaxLevel = 80
 # Quests that will be completed and rewarded for all randombots
 AiPlayerbot.RandomBotQuestIds = "3802,5505,6502,7761,7848,10277,10285,11492,13188,13189,24499,24511,24710,24712"
 
-# Randombots will group with nearby randombots to do shared quests
-# Note: Currently not functioning properly
+# Randombots will group up with nearby randombots into small persistent open-world groups
+# (members follow and assist their leader). These groups are ambient: battlegrounds, LFG,
+# arena, real-player invites and the bot logout rotation all take priority — the bot leaves
+# its group first and groups re-form organically afterward.
+# Default: 0 (disabled)
 AiPlayerbot.RandomBotGroupNearby = 0
 
 # Randombots will pick quests on their own and try to complete them

@@ -12,6 +12,8 @@
 #include "GameTime.h"
 #include "PlayerbotCommandServer.h"
 
+class Group;
+
 struct BattlegroundInfo
 {
     std::vector<uint32> bgInstances;
@@ -103,6 +105,10 @@ public:
     static bool HandlePlayerbotConsoleCommand(ChatHandler* handler, char const* args);
     bool IsRandomBot(Player* bot);
     bool IsRandomBot(ObjectGuid::LowType bot);
+    // True for a persistent open-world group formed by random bots via RandomBotGroupNearby:
+    // non-LFG, non-BG, led by a random bot with no real-player master. Always false when the
+    // config is disabled, so all call sites gate on it without changing default behavior.
+    bool IsBotLedNearbyGroup(Group* group);
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
     void Randomize(Player* bot);

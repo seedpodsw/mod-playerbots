@@ -653,16 +653,18 @@ bool BroadcastHelper::BroadcastGuildGroupOrRaidInvite(PlayerbotAI* ai, Player* /
     placeholders["%area_name"] = current_area ? ai->GetLocalizedAreaName(current_area) : PlayerbotTextMgr::instance().GetBotText("string_unknown_area");
     placeholders["%zone_name"] = current_zone ? ai->GetLocalizedAreaName(current_zone) : PlayerbotTextMgr::instance().GetBotText("string_unknown_area");
 
-    //TODO move texts to sql!
     if (group && group->isRaidGroup())
     {
         if (urand(0, 3))
         {
-            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotText("Hey anyone want to raid in %zone_name", placeholders));
+            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "broadcast_guild_raid_invite_generic", "Hey, anyone want to raid in %zone_name?", placeholders));
         }
         else
         {
-            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotText("Hey %name I'm raiding in %zone_name do you wan to join me?", placeholders));
+            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "broadcast_guild_raid_invite_named", "Hey %name, I'm raiding in %zone_name, do you want to join me?",
+                placeholders));
         }
     }
     else
@@ -670,15 +672,16 @@ bool BroadcastHelper::BroadcastGuildGroupOrRaidInvite(PlayerbotAI* ai, Player* /
         //(bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH)
         if (urand(0, 3))
         {
-            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotText("Hey anyone wanna group up in %zone_name?", placeholders));
+            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "broadcast_guild_group_invite_generic", "Hey, anyone wanna group up in %zone_name?", placeholders));
         }
         else
         {
-            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotText("Hey %name do you want join my group? I'm heading for %zone_name", placeholders));
+            return ai->SayToGuild(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "broadcast_guild_group_invite_named",
+                "Hey %name, do you want to join my group? I'm heading for %zone_name.", placeholders));
         }
     }
-
-    return false;
 }
 
 bool BroadcastHelper::BroadcastSuggestInstance(PlayerbotAI* ai, std::vector<std::string>& allowedInstances, Player* bot)
