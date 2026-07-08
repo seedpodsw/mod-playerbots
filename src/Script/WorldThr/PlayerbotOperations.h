@@ -430,11 +430,7 @@ public:
         group->ChangeLeader(newLeader->GetGUID());
         group->SendUpdate();
 
-        if (!group->RemoveMember(leavingLeader->GetGUID()))
-        {
-            WorldPacket packet(CMSG_GROUP_LEAVE);
-            leavingLeader->GetSession()->HandleGroupLeaveOpcode(packet);
-        }
+        Player::RemoveFromGroup(group, leavingLeader->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
 
         LOG_DEBUG("playerbots", "GroupPromoteAndLeaveOperation: Promoted {} and removed {} from nearby group",
                   newLeader->GetName(), leavingLeader->GetName());

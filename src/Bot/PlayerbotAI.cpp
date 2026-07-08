@@ -917,8 +917,8 @@ void PlayerbotAI::LeaveOrDisbandGroup()
     if (!bot || !bot->GetGroup() || IsRealPlayer())
         return;
 
-    Group* group = bot->GetGroup();
-    WorldPacket* packet = new WorldPacket(group->IsLeader(bot->GetGUID()) ? CMSG_GROUP_DISBAND : CMSG_GROUP_LEAVE);
+    // WotLK uses CMSG_GROUP_DISBAND for both leaders and members leaving a party.
+    WorldPacket* packet = new WorldPacket(CMSG_GROUP_DISBAND);
     bot->GetSession()->QueuePacket(packet);
 }
 
