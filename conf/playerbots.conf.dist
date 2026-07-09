@@ -1291,6 +1291,14 @@ AiPlayerbot.AutoTeleportForLevel = 1
 ####################################################################################################
 # BATTLEGROUNDS & ARENAS & PVP
 #
+# How these work together on a PvP realm (random bots only; alt bots unchanged):
+# - RandomBotOpenWorldPvp (see GROUPING section): faction PvP in hostile/contested zones for solo
+#   bots and nearby-group leaders; members assist via dps assist only.
+# - RandomBotJoinBG / RandomBotAutoJoinBG: honor BGs for solo and ungrouped bots only — bots in an
+#   ambient RandomBotGroupNearby party do not receive the bg strategy and will not queue.
+# - RandomBotAutoJoinMinOnlineRatio: fraction of allowed random bots that must be online before
+#   auto-join opens queues; lower (e.g. 0.3) if periodic login rotation keeps auto-fill idle.
+# - Real players queuing a BG still pull bots in via shouldJoinBg fill logic when slots are needed.
 
 # Enable battlegrounds/arenas for randombots
 AiPlayerbot.RandomBotJoinBG = 1
