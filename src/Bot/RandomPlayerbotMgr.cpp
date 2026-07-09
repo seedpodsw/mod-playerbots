@@ -2406,6 +2406,11 @@ int32 GetPreferredMinMobLevel(uint8 progressionLevel)
     return std::max(1, int32(progressionLevel) - slack);
 }
 
+int32 GetPreferredMaxMobLevel(uint8 progressionLevel)
+{
+    return int32(progressionLevel) + 2;
+}
+
 int32 GetPreferredMinQuestLevel(uint8 progressionLevel)
 {
     return GetPreferredMinMobLevel(progressionLevel);
@@ -2456,7 +2461,7 @@ bool HasValidProgressionQuest(Player* bot)
     if (!bot)
         return false;
 
-    uint8 const level = bot->GetLevel();
+    uint8 const level = GetQuestLevelRef(bot);
     for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
     {
         uint32 questId = bot->GetQuestSlotQuestId(i);
@@ -2487,12 +2492,15 @@ bool HasAppropriateMobNearby(Player* bot, PlayerbotAI* botAI)
     if (!bot || !botAI)
         return false;
 
-    int32 const minMobLevel = GetPreferredMinMobLevel(bot->GetLevel());
+    uint8 const progressionLevel = GetProgressionLevel(bot);
+    int32 const minMobLevel = GetPreferredMinMobLevel(progressionLevel);
+    int32 const maxMobLevel = GetPreferredMaxMobLevel(progressionLevel);
     float const scanRange = GetNearbyPartyRadius() * 2.0f;
 
     if (Unit* target = botAI->GetAiObjectContext()->GetValue<Unit*>("grind target")->Get())
     {
-        if (target->IsAlive() && int32(target->GetLevel()) >= minMobLevel && bot->GetDistance(target) <= scanRange)
+        // GrindTargetValue already applied OW band / quest-needed rules; trust that pick.
+        if (target->IsAlive() && bot->GetDistance(target) <= scanRange)
             return true;
     }
 
@@ -2509,7 +2517,8 @@ bool HasAppropriateMobNearby(Player* bot, PlayerbotAI* botAI)
         if (!bot->isHonorOrXPTarget(unit) || !bot->IsHostileTo(unit))
             continue;
 
-        if (int32(unit->GetLevel()) >= minMobLevel)
+        int32 const mobLevel = unit->GetLevel();
+        if (mobLevel >= minMobLevel && mobLevel <= maxMobLevel)
             return true;
     }
 

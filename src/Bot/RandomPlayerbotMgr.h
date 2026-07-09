@@ -65,6 +65,8 @@ uint8 GetProgressionLevel(Player* bot);
 uint8 GetQuestLevelRef(Player* bot);
 // Minimum mob level worth pulling while leveling as a party.
 int32 GetPreferredMinMobLevel(uint8 progressionLevel);
+// Maximum mob level worth pulling under open-world progression (progressionLevel + 2).
+int32 GetPreferredMaxMobLevel(uint8 progressionLevel);
 // Minimum quest level worth keeping/accepting during open-world progression.
 int32 GetPreferredMinQuestLevel(uint8 progressionLevel);
 bool IsQuestBelowProgressionLevel(uint8 progressionLevel, Quest const* quest);

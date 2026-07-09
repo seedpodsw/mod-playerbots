@@ -4812,7 +4812,11 @@ uint8 PlayerbotAI::GetNearbyGroupTargetSize()
     if (gt < GrouperType::LEADER_2)
         return 0;
 
-    uint8 const maxSize = static_cast<uint8>(gt);
+    // Ambient nearby groups favor 2–3 for XP; clamp invite target even if role is Leader4/5.
+    uint8 maxSize = static_cast<uint8>(gt);
+    if (!HasRealPlayerMaster() && sRandomPlayerbotMgr.IsRandomBot(bot) && sPlayerbotAIConfig.randomBotGroupNearby)
+        maxSize = std::min<uint8>(maxSize, 3);
+
     uint8 const minSize = 2;
     if (maxSize <= minSize)
         return maxSize;

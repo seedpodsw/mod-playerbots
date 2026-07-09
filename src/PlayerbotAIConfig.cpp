@@ -724,17 +724,17 @@ bool PlayerbotAIConfig::Initialize()
         sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyRejoinCooldownMinutes", 5);
     randomBotGroupNearbyRelocateParty =
         sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotGroupNearbyRelocateParty", true);
-    randomBotNearbyGrouperWeightSolo = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Solo", 40);
+    randomBotNearbyGrouperWeightSolo = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Solo", 42);
     randomBotNearbyGrouperWeightMember =
-        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Member", 35);
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Member", 38);
     randomBotNearbyGrouperWeightLeader2 =
-        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader2", 10);
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader2", 12);
     randomBotNearbyGrouperWeightLeader3 =
         sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader3", 8);
     randomBotNearbyGrouperWeightLeader4 =
-        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader4", 4);
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader4", 0);
     randomBotNearbyGrouperWeightLeader5 =
-        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader5", 3);
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader5", 0);
     randomBotNearbyMemberJoinChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyMemberJoinChance", 75);
     randomBotNearbyInviteChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyInviteChance", 50);
     randomBotOpenWorldPvp = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotOpenWorldPvp", sWorld->IsPvPRealm());

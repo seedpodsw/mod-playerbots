@@ -93,8 +93,15 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
             continue;
         }
 
-        if (!bot->InBattleground() && (int)unit->GetLevel() - (int)bot->GetLevel() > 4 && !unit->GetGUID().IsPlayer())
-            continue;
+        bool const useOpenWorldProgression = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot);
+        if (!bot->InBattleground() && !unit->GetGUID().IsPlayer())
+        {
+            int32 const levelRef = useOpenWorldProgression
+                                       ? int32(PlayerbotGroupProgression::GetProgressionLevel(bot))
+                                       : int32(bot->GetLevel());
+            if (int32(unit->GetLevel()) - levelRef > 4)
+                continue;
+        }
 
         if (Creature* creature = unit->ToCreature())
             if (CreatureTemplate const* CreatureTemplate = creature->GetCreatureTemplate())
@@ -106,12 +113,14 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
             continue;
         }
 
-        if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+        if (useOpenWorldProgression)
         {
             uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
             int32 const minMobLevel = PlayerbotGroupProgression::GetPreferredMinMobLevel(progressionLevel);
+            int32 const maxMobLevel = PlayerbotGroupProgression::GetPreferredMaxMobLevel(progressionLevel);
             int32 const mobLevel = unit->GetLevel();
             float const distFromBot = bot->GetDistance(unit);
+            bool const questNeeded = needForQuest(unit);
 
             bool const isNearbyLeader = group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) &&
                                         group->GetLeaderGUID() == bot->GetGUID();
@@ -141,10 +150,18 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
                     continue;
             }
 
-            if (mobLevel < minMobLevel && !needForQuest(unit))
-                continue;
+            if (!questNeeded)
+            {
+                if (mobLevel < minMobLevel)
+                    continue;
 
-            float const score = float(mobLevel) * 100.0f - distFromBot;
+                if (mobLevel > maxMobLevel)
+                    continue;
+            }
+
+            // Prefer mid-band (near progression level) over highest-in-band; then nearer.
+            float const levelDelta = float(std::abs(mobLevel - int32(progressionLevel)));
+            float const score = -levelDelta * 100.0f - distFromBot;
             if (!result || score > distance)
             {
                 distance = score;

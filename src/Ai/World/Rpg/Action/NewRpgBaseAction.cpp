@@ -1066,7 +1066,11 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
     if (!bot || !bot->IsInWorld() || bot->IsDuringRemoveFromWorld())
         return WorldPosition{};
 
-    const std::vector<WorldLocation>& locs = sTravelMgr.GetLocsPerLevelCache(bot->GetLevel());
+    uint8 grindLevel = bot->GetLevel();
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+        grindLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
+
+    const std::vector<WorldLocation>& locs = sTravelMgr.GetLocsPerLevelCache(grindLevel);
     float hiRange = 500.0f;
     float loRange = 2500.0f;
     std::vector<WorldLocation> lo_prepared_locs, hi_prepared_locs;
@@ -1122,8 +1126,8 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
         uint32 idx = urand(0, lo_prepared_locs.size() - 1);
         dest = lo_prepared_locs[idx];
     }
-    LOG_DEBUG("playerbots", "[New RPG] Bot {} select random grind pos Map:{} X:{} Y:{} Z:{} ({}+{} available in {})",
-              bot->GetName(), dest.GetMapId(), dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(),
+    LOG_DEBUG("playerbots", "[New RPG] Bot {} select random grind pos (lvl {}) Map:{} X:{} Y:{} Z:{} ({}+{} available in {})",
+              bot->GetName(), grindLevel, dest.GetMapId(), dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(),
               hi_prepared_locs.size(), lo_prepared_locs.size() - hi_prepared_locs.size(), locs.size());
     return dest;
 }
@@ -1202,36 +1206,63 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
     if (!activeBot)
         return false;
 
-    std::vector<NewRpgStatus> availableStatus;
-    uint32 probSum = 0;
-    for (NewRpgStatus status : candidateStatus)
-    {
-        if (sPlayerbotAIConfig.RpgStatusProbWeight[status] == 0)
-            continue;
+    NewRpgStatus chosenStatus = RPG_STATUS_END;
 
-        if (CheckRpgStatusAvailable(status))
+    // Hard-prefer DoQuest for open-world progression bots when a worthwhile quest is
+    // actually available. Bypass RpgStatusProbWeight==0 for this availability check;
+    // weights still apply to the fallback roll when DoQuest is unavailable.
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot))
+    {
+        bool doQuestCandidate = false;
+        for (NewRpgStatus status : candidateStatus)
         {
-            availableStatus.push_back(status);
-            probSum += sPlayerbotAIConfig.RpgStatusProbWeight[status];
+            if (status == RPG_DO_QUEST)
+            {
+                doQuestCandidate = true;
+                break;
+            }
+        }
+
+        if (doQuestCandidate && CheckRpgStatusAvailable(RPG_DO_QUEST))
+        {
+            chosenStatus = RPG_DO_QUEST;
+            LOG_DEBUG("playerbots", "[New RPG] Bot {} hard-prefers DoQuest (open-world progression)",
+                      activeBot->GetName());
         }
     }
-    // Safety check. Default to "rest" if all RPG weights = 0
-    if (availableStatus.empty() || probSum == 0)
+
+    if (chosenStatus == RPG_STATUS_END)
     {
-        botAI->rpgInfo.ChangeToRest();
-        activeBot->SetStandState(UNIT_STAND_STATE_SIT);
-        return true;
-    }
-    uint32 rand = urand(1, probSum);
-    uint32 accumulate = 0;
-    NewRpgStatus chosenStatus = RPG_STATUS_END;
-    for (NewRpgStatus status : availableStatus)
-    {
-        accumulate += sPlayerbotAIConfig.RpgStatusProbWeight[status];
-        if (accumulate >= rand)
+        std::vector<NewRpgStatus> availableStatus;
+        uint32 probSum = 0;
+        for (NewRpgStatus status : candidateStatus)
         {
-            chosenStatus = status;
-            break;
+            if (sPlayerbotAIConfig.RpgStatusProbWeight[status] == 0)
+                continue;
+
+            if (CheckRpgStatusAvailable(status))
+            {
+                availableStatus.push_back(status);
+                probSum += sPlayerbotAIConfig.RpgStatusProbWeight[status];
+            }
+        }
+        // Safety check. Default to "rest" if all RPG weights = 0
+        if (availableStatus.empty() || probSum == 0)
+        {
+            botAI->rpgInfo.ChangeToRest();
+            activeBot->SetStandState(UNIT_STAND_STATE_SIT);
+            return true;
+        }
+        uint32 rand = urand(1, probSum);
+        uint32 accumulate = 0;
+        for (NewRpgStatus status : availableStatus)
+        {
+            accumulate += sPlayerbotAIConfig.RpgStatusProbWeight[status];
+            if (accumulate >= rand)
+            {
+                chosenStatus = status;
+                break;
+            }
         }
     }
 
@@ -1510,19 +1541,7 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
 bool NewRpgBaseAction::HasLevelAppropriateContentNearby()
 {
     if (Unit* target = AI_VALUE(Unit*, "grind target"))
-    {
-        if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
-        {
-            uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
-            int32 const minMobLevel = PlayerbotGroupProgression::GetPreferredMinMobLevel(progressionLevel);
-            if (target->GetLevel() >= minMobLevel)
-                return true;
-        }
-        else
-        {
-            return true;
-        }
-    }
+        return true; // GrindTargetValue already applied OW band / quest-needed rules.
 
     for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
     {

@@ -979,12 +979,14 @@ AiPlayerbot.RandomBotGroupNearby = 0
 # When RandomBotGroupNearby is enabled, random bots (not player alts) roll a stable social role
 # from these weights. Solo bots never invite and decline ambient invites; members join only
 # per RandomBotGroupNearbyMemberJoinChance; leaders invite up to a random size <= their cap.
-AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Solo = 40
-AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Member = 35
-AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader2 = 10
+# Progression bias: favor Solo/Member/Leader2–3 so ambient parties stay small (better XP).
+# Invite target size is also clamped to 2–3 in code for ambient nearby groups.
+AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Solo = 42
+AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Member = 38
+AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader2 = 12
 AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader3 = 8
-AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader4 = 4
-AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader5 = 3
+AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader4 = 0
+AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader5 = 0
 # Percent chance a member-role bot accepts an ambient nearby invite (real-player invites always accepted).
 AiPlayerbot.RandomBotGroupNearbyMemberJoinChance = 75
 # Percent chance a leader attempts a nearby invite each tick the action is useful (partial groups).
@@ -1084,6 +1086,11 @@ AiPlayerbot.EnableNewRpgStrategy = 1
 
 # Control probability weights for RPG status of bots. Takes effect only when the status meets its premise.​
 # Sum of weights need not be 100. Set to 0 to disable the status.
+#
+# Open-world progression: when EnableNewRpgStrategy is on, bots hard-prefer DoQuest whenever a
+# worthwhile quest is available (POI + capable), even if DoQuest weight is 0. Weights apply to the
+# fallback roll when no such quest is available. Grind targets use a tight level band
+# (min slack / max progression+2) scored toward mid-band.
 #
 # WanderRandom  (Default: 15  Move randomly nearby to find and kill mobs)
 # WanderNpc     (Default: 20  Randomly interact with nearby NPCs​)
