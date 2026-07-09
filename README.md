@@ -55,8 +55,98 @@ This fork extends upstream `master` with ambient random-bot grouping, open-world
 
 ### Performance / DB load
 
-- **Deferred event persistence** (`RandomBotEventPersistInterval`) and dirty-only repository saves (`RandomBotRepositoryDirtyOnly`) to cut Character DB write volume at scale.
-- Optional **DB perf stats** logging (`DbPerfStatsEnabled`) for tuning large bot counts.
+- **Deferred event persistence** (`RandomBotEventPersistInterval = 60`) and dirty-only repository saves (`RandomBotRepositoryDirtyOnly = 1`) to cut Character DB write volume at scale.
+- **Logout save throttling** (`RandomBotLogoutSavesPerInterval = 8`) spreads mass-logout Character DB spikes.
+- **Smaller login bursts** (`RandomBotsPerInterval = 25`, was 60) — fewer bots processed per manager tick.
+- Optional **DB perf stats** logging (`DbPerfStatsEnabled`, `DbPerfStatsLogInterval`) for tuning large bot counts.
+- Tip in dist: raise `Save.Interval` in `worldserver.conf` (e.g. 900–1800) for fewer core character saves.
+
+### Config changes in `playerbots.conf.dist`
+
+This fork ships tuned defaults in [`conf/playerbots.conf.dist`](conf/playerbots.conf.dist). On upgrade, diff your existing `playerbots.conf` against the new dist — do not blindly overwrite a customized config.
+
+#### New options
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `RandomBotGroupNearbyGrouperWeight.*` | Solo 40 / Member 35 / Leader2–5 10–3 | Stable social-role weights for ambient grouping |
+| `RandomBotGroupNearbyMemberJoinChance` | 75 | % chance member-role bots accept ambient invites |
+| `RandomBotGroupNearbyInviteChance` | 50 | % chance leaders attempt a nearby invite per tick |
+| `RandomBotGroupNearbyLeaveForProgression` | 1 | Leave group when quests/level are stale |
+| `RandomBotGroupNearbyLeaveDistanceMultiplier` | 3 | Grace distance before leaving (× `RpgDistance`) |
+| `RandomBotGroupNearbyRejoinCooldownMinutes` | 5 | Cooldown before re-joining same leader |
+| `RandomBotGroupNearbyRelocateParty` | 1 | Teleport whole party to level hub when walk fails |
+| `RandomBotOpenWorldPvp` | 1 | Open-world faction PvP for random bots |
+| `RandomBotOpenWorldPvpAttackPriority` | 85 | Action priority for PvP engage |
+| `RandomBotOpenWorldPvpAggroRange` | 80 | Scan range for enemy players |
+| `RandomBotOpenWorldPvpProactiveChance` | 30 | % chance to seek PvP when eligible |
+| `RandomBotAutoJoinMinOnlineRatio` | 0.5 | Min fraction of bots online before BG auto-join |
+| `RandomBotEventPersistInterval` | 60 | Batch-defer `playerbots_random_bots` event writes (0 = legacy immediate) |
+| `RandomBotLogoutSavesPerInterval` | 8 | Max logout saves per manager tick |
+| `RandomBotRepositoryDirtyOnly` | 1 | Skip repository save on logout if AI unchanged |
+| `DbPerfStatsEnabled` | 0 | Log DB perf counters periodically |
+| `DbPerfStatsLogInterval` | 300 | Seconds between DB perf log lines |
+
+#### Changed defaults (vs upstream `master`)
+
+**Population & lifecycle**
+
+| Key | Upstream | This fork |
+|-----|----------|-----------|
+| `MinRandomBots` / `MaxRandomBots` | 500 | **300** |
+| `DisabledWithoutRealPlayer` | 0 | **1** (bots only when a real player is online) |
+| `EnablePeriodicOnlineOffline` | 0 | **1** (rotate bots on/off) |
+| `MinRandomBotInWorldTime` | 600 s | **14400 s** (4 h) |
+| `MaxRandomBotInWorldTime` | 28800 s | **86400 s** (24 h) |
+| `MinRandomBotRandomizeTime` | 7200 s | **28800 s** (8 h) |
+| `RandomBotUpdateInterval` | 20 s | **30 s** |
+
+**AI timing & responsiveness**
+
+| Key | Upstream | This fork |
+|-----|----------|-----------|
+| `MaxWaitForMove` | 5000 | **2000** |
+| `ReactDelay` | 100 | **40** |
+| `DynamicReactDelay` | 1 | **0** |
+| `PassiveDelay` | 10000 | **3000** |
+| `RepeatDelay` | 2000 | **1000** |
+| `RpgDelay` | 10000 | **2000** |
+| `LootDelay` | 1000 | **400** |
+| `AlmostFullHealth` | 85 | **70** |
+| `MediumMana` | 40 | **25** |
+
+**Active-bot scaling (near real players)**
+
+| Key | Upstream | This fork |
+|-----|----------|-----------|
+| `BotActiveAlone` | 10 | **60** (% of bots active when alone) |
+| `BotActiveAloneDurationSeconds` | 30 | **45** |
+| `BotActiveAloneForceWhenInRadius` | 150 | **200** |
+
+**New RPG strategy (open-world behavior)**
+
+| Key | Upstream | This fork |
+|-----|----------|-----------|
+| `RpgStatusProbWeight.DoQuest` | 60 | **70** |
+| `RpgStatusProbWeight.GoGrind` | 15 | **25** |
+| `RpgStatusProbWeight.WanderRandom` | 15 | **20** |
+| `RpgStatusProbWeight.WanderNpc` | 20 | **10** |
+| `RpgStatusProbWeight.GoCamp` | 10 | **5** |
+| `RpgStatusProbWeight.Rest` | 5 | **0** |
+| `ZoneBracket.*` (starter zones) | 5–12 | **1–12** (level-1 bots stay in starting zones) |
+
+**Battlegrounds**
+
+| Key | Upstream | This fork |
+|-----|----------|-----------|
+| `RandomBotAutoJoinBG` | 0 | **1** |
+| `RandomBotAutoJoinWSBrackets` | 7 | **0,1,2,3,4,5,6,7** (all brackets) |
+| `RandomBotAutoJoinABBrackets` | 6 | **0,1,2,3,4,5,6** (all brackets) |
+
+**Grouping section docs**
+
+- `RandomBotGroupNearby` comment updated from “not functioning properly” to describe ambient persistent groups and priority rules (BG / LFG / real-player invite / logout supersede grouping).
+- New PvP-realm comment block under **BATTLEGROUNDS & ARENAS & PVP** explains how open-world PvP, BG auto-join, and `RandomBotAutoJoinMinOnlineRatio` interact.
 
 ### Stability and roamer fixes
 
@@ -74,7 +164,7 @@ AiPlayerbot.EnableNewRpgStrategy = 1
 AiPlayerbot.RandomBotOpenWorldPvp = 1
 ```
 
-> **Branch:** `feature/bot-grouping` · **12 commits** ahead of upstream `master` · ~3.4k lines changed across 53 files.
+> **Branch:** `feature/bot-grouping` · **13 commits** ahead of upstream `master` · ~3.4k lines changed across 54 files.
 
 ---
 
