@@ -973,7 +973,8 @@ bool PlayerbotAI::CommandTextEqualsOrStartsWith(std::string const& text, std::st
 
 std::string PlayerbotAI::NormalizeChatCommandText(std::string const& text)
 {
-    std::string filtered = trim(text);
+    std::string filtered = text;
+    trim(filtered);
     if (filtered.empty())
         return filtered;
 
