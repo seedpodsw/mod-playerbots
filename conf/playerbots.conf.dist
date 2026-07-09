@@ -342,7 +342,7 @@ AiPlayerbot.IterationsPerTick = 10
 AiPlayerbot.GlobalCooldown = 500
 
 # Max wait time when moving
-AiPlayerbot.MaxWaitForMove = 5000
+AiPlayerbot.MaxWaitForMove = 2000
 
 # Enable/disable use of MoveSplinePath for bot movement
 # Disabling will result in more erratic movement but is required for stuns, snares, and roots to work on bots
@@ -362,24 +362,24 @@ AiPlayerbot.ExpireActionTime = 5000
 AiPlayerbot.DispelAuraDuration = 700
 
 # Delay between two bot actions
-AiPlayerbot.ReactDelay = 100
+AiPlayerbot.ReactDelay = 40
 
 # Dynamically adjust react delay for bots in different status to reduce server lags
-AiPlayerbot.DynamicReactDelay = 1
+AiPlayerbot.DynamicReactDelay = 0
 
 # Inactivity delay
-AiPlayerbot.PassiveDelay = 10000
+AiPlayerbot.PassiveDelay = 3000
 
 # Minimum delay between repeating actions (chat messages, emotes etc)
-AiPlayerbot.RepeatDelay = 2000
+AiPlayerbot.RepeatDelay = 1000
 
 # Delay timers
 AiPlayerbot.ErrorDelay = 100
-AiPlayerbot.RpgDelay = 10000
+AiPlayerbot.RpgDelay = 2000
 AiPlayerbot.SitDelay = 20000
 # ReturnDelay has a minimum value of 2000 - lower values will cause a crash!
 AiPlayerbot.ReturnDelay = 2000
-AiPlayerbot.LootDelay = 1000
+AiPlayerbot.LootDelay = 400
 
 #
 #
@@ -420,9 +420,9 @@ AiPlayerbot.ReactDistance = 150.0
 AiPlayerbot.CriticalHealth = 25
 AiPlayerbot.LowHealth = 45
 AiPlayerbot.MediumHealth = 65
-AiPlayerbot.AlmostFullHealth = 85
+AiPlayerbot.AlmostFullHealth = 70
 AiPlayerbot.LowMana = 15
-AiPlayerbot.MediumMana = 40
+AiPlayerbot.MediumMana = 25
 AiPlayerbot.HighMana = 65
 
 #
@@ -914,8 +914,8 @@ AiPlayerbot.ExcludedHunterPetFamilies = ""
 #   rotation happens, it stays active until those conditions end — it won't be cut off
 #   mid-fight just because its turn expired.
 #
-AiPlayerbot.BotActiveAlone = 15
-AiPlayerbot.BotActiveAloneDurationSeconds = 30
+AiPlayerbot.BotActiveAlone = 60
+AiPlayerbot.BotActiveAloneDurationSeconds = 45
 
 # Force-active rules (1 = on, 0 = off)
 # These override the percentage above. If any of these conditions is true, the bot stays active.
@@ -989,6 +989,15 @@ AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader5 = 3
 AiPlayerbot.RandomBotGroupNearbyMemberJoinChance = 75
 # Percent chance a leader attempts a nearby invite each tick the action is useful (partial groups).
 AiPlayerbot.RandomBotGroupNearbyInviteChance = 50
+
+# Leave ambient nearby group when solo progression would move on (stale quests, wrong level, no mobs).
+AiPlayerbot.RandomBotGroupNearbyLeaveForProgression = 1
+# Distance grace multiplier for nearby-group leave (multiplier on RpgDistance; default 3).
+AiPlayerbot.RandomBotGroupNearbyLeaveDistanceMultiplier = 3
+# Minutes before a bot that left for progression will accept another invite from the same leader (0 = disabled).
+AiPlayerbot.RandomBotGroupNearbyRejoinCooldownMinutes = 5
+# When walk relocation fails, teleport aligned nearby-group members to the same level hub (1 = on).
+AiPlayerbot.RandomBotGroupNearbyRelocateParty = 1
 
 # Open-world PvP for random bots (not player alts): flag in hostile zones, engage opposing
 # random bots and flagged real players. Default follows realm type (1 on PvP, 0 on PvE).
@@ -1084,35 +1093,35 @@ AiPlayerbot.EnableNewRpgStrategy = 1
 # TravelFlight  (Default: 15  Go to the nearest flightmaster and fly to a level-appropriate area)
 # Rest          (Default: 5   Take a break for a while and do nothing)
 # OutdoorPvp    (Default: 10  Participate in outdoor PvP capture points if already in an outdoor PvP zone)
-AiPlayerbot.RpgStatusProbWeight.WanderRandom = 15
-AiPlayerbot.RpgStatusProbWeight.WanderNpc = 20
-AiPlayerbot.RpgStatusProbWeight.GoGrind = 15
-AiPlayerbot.RpgStatusProbWeight.GoCamp = 10
-AiPlayerbot.RpgStatusProbWeight.DoQuest = 60
+AiPlayerbot.RpgStatusProbWeight.WanderRandom = 20
+AiPlayerbot.RpgStatusProbWeight.WanderNpc = 10
+AiPlayerbot.RpgStatusProbWeight.GoGrind = 25
+AiPlayerbot.RpgStatusProbWeight.GoCamp = 5
+AiPlayerbot.RpgStatusProbWeight.DoQuest = 70
 AiPlayerbot.RpgStatusProbWeight.TravelFlight = 15
-AiPlayerbot.RpgStatusProbWeight.Rest = 5
+AiPlayerbot.RpgStatusProbWeight.Rest = 0
 AiPlayerbot.RpgStatusProbWeight.OutdoorPvp = 10
 
 # Bots' minimum and maximum level when teleporting in and out of a zone, according to the new RPG strategy
 # Format: AiPlayerbot.ZoneBracket.zoneID = minLevel,maxLevel
 #
 # Classic WoW - Low-level zones:
-# Dun Morogh             (Zone ID:    1    Default Min,Max:  5,12)
-# Elwynn Forest          (Zone ID:   12    Default Min,Max:  5,12)
-# Durotar                (Zone ID:   14    Default Min,Max:  5,12)
-# Tirisfal Glades        (Zone ID:   85    Default Min,Max:  5,12)
-# Teldrassil             (Zone ID:  141    Default Min,Max:  5,12)
-# Mulgore                (Zone ID:  215    Default Min,Max:  5,12)
-# Eversong Woods         (Zone ID: 3430    Default Min,Max:  5,12)
-# Azuremyst Isle         (Zone ID: 3524    Default Min,Max:  5,12)
-AiPlayerbot.ZoneBracket.1 = 5,12
-AiPlayerbot.ZoneBracket.12 = 5,12
-AiPlayerbot.ZoneBracket.14 = 5,12
-AiPlayerbot.ZoneBracket.85 = 5,12
-AiPlayerbot.ZoneBracket.141 = 5,12
-AiPlayerbot.ZoneBracket.215 = 5,12
-AiPlayerbot.ZoneBracket.3430 = 5,12
-AiPlayerbot.ZoneBracket.3524 = 5,12
+# Dun Morogh             (Zone ID:    1    Default Min,Max:  1,12)
+# Elwynn Forest          (Zone ID:   12    Default Min,Max:  1,12)
+# Durotar                (Zone ID:   14    Default Min,Max:  1,12)
+# Tirisfal Glades        (Zone ID:   85    Default Min,Max:  1,12)
+# Teldrassil             (Zone ID:  141    Default Min,Max:  1,12)
+# Mulgore                (Zone ID:  215    Default Min,Max:  1,12)
+# Eversong Woods         (Zone ID: 3430    Default Min,Max:  1,12)
+# Azuremyst Isle         (Zone ID: 3524    Default Min,Max:  1,12)
+AiPlayerbot.ZoneBracket.1 = 1,12
+AiPlayerbot.ZoneBracket.12 = 1,12
+AiPlayerbot.ZoneBracket.14 = 1,12
+AiPlayerbot.ZoneBracket.85 = 1,12
+AiPlayerbot.ZoneBracket.141 = 1,12
+AiPlayerbot.ZoneBracket.215 = 1,12
+AiPlayerbot.ZoneBracket.3430 = 1,12
+AiPlayerbot.ZoneBracket.3524 = 1,12
 
 # Classic WoW - Mid-level zones:
 # Barrens                (Zone ID:   17    Default Min,Max: 10,25)

@@ -77,6 +77,14 @@ public:
     bool Execute(Event event) override;
 };
 
+class PullBackChatShortcutAction : public Action
+{
+public:
+    PullBackChatShortcutAction(PlayerbotAI* botAI) : Action(botAI, "pull back chat shortcut") {}
+
+    bool Execute(Event event) override;
+};
+
 class MaxDpsChatShortcutAction : public Action
 {
 public:

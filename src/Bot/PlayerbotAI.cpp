@@ -44,6 +44,7 @@
 #include "PlayerbotGuildMgr.h"
 #include "Playerbots.h"
 #include "PositionValue.h"
+#include "PullStrategy.h"
 #include "RBAC.h"
 #include "RandomPlayerbotMgr.h"
 #include "SayAction.h"
@@ -1513,6 +1514,11 @@ void PlayerbotAI::DoNextAction(bool min)
         aiObjectContext->GetValue<ObjectGuid>("pull target")->Set(ObjectGuid::Empty);
         aiObjectContext->GetValue<ObjectGuid>("pull strategy target")->Set(ObjectGuid::Empty);
         aiObjectContext->GetValue<LootObject>("loot target")->Set(LootObject());
+
+        if (PullStrategy* pullStrategy = dynamic_cast<PullStrategy*>(GetStrategy("pull", BOT_STATE_COMBAT)))
+            pullStrategy->OnPullEnded();
+        if (PullStrategy* pullStrategy = dynamic_cast<PullStrategy*>(GetStrategy("pull", BOT_STATE_NON_COMBAT)))
+            pullStrategy->OnPullEnded();
 
         ChangeEngine(BOT_STATE_DEAD);
         return;
@@ -4489,7 +4495,7 @@ Player* PlayerbotAI::FindNewMaster()
     return nullptr;
 }
 
-bool PlayerbotAI::HasRealPlayerMaster()
+bool PlayerbotAI::HasRealPlayerMaster() const
 {
     if (master)
     {
@@ -4512,6 +4518,34 @@ Player* PlayerbotAI::GetGroupLeader()
                 return player;
 
     return master;
+}
+
+void PlayerbotAI::MarkAmbientGroupLeftForProgression(ObjectGuid leaderGuid)
+{
+    if (!leaderGuid)
+        return;
+
+    ambientGroupLeaveLeaderGuid = leaderGuid;
+    ambientGroupLeaveTime = time(nullptr);
+}
+
+bool PlayerbotAI::ShouldDeclineAmbientGroupInvite(Player const* inviter) const
+{
+    if (!inviter || !sPlayerbotAIConfig.randomBotGroupNearbyRejoinCooldownMinutes)
+        return false;
+
+    if (!sRandomPlayerbotMgr.IsRandomBot(bot) || HasRealPlayerMaster())
+        return false;
+
+    if (!ambientGroupLeaveLeaderGuid || ambientGroupLeaveLeaderGuid != inviter->GetGUID())
+        return false;
+
+    if (!ambientGroupLeaveTime)
+        return false;
+
+    time_t const cooldownEnd =
+        ambientGroupLeaveTime + static_cast<time_t>(sPlayerbotAIConfig.randomBotGroupNearbyRejoinCooldownMinutes) * 60;
+    return time(nullptr) < cooldownEnd;
 }
 
 uint32 PlayerbotAI::GetFixedBotNumber(BotTypeNumber typeNumber, uint32 maxNum)
@@ -6621,9 +6655,7 @@ bool PlayerbotAI::StarterLevelDistanceCheck(Player* player, const WorldLocation&
     }
 
     float bound = 10000.0f;
-    if (player->GetLevel() <= 4)
-        bound = 500.0f;
-    else if (player->GetLevel() <= 10)
+    if (player->GetLevel() <= 10)
         bound = 2500.0f;
 
     return dis <= bound;

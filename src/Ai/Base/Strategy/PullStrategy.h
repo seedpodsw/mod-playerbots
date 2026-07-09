@@ -27,10 +27,12 @@ public:
 
     static PullStrategy* Get(PlayerbotAI* botAI);
     static uint8 GetMaxPullTime() { return 15; }
+    static uint8 GetMaxPullFailures() { return 5; }
 
     time_t GetPullStartTime() const { return pullStartTime; }
     bool IsPullPendingToStart() const { return pendingToStart; }
     bool HasPullStarted() const { return pullStartTime > 0; }
+    bool ShouldAbortPull() const { return pullFailureCount >= GetMaxPullFailures(); }
 
     bool CanDoPullAction(Unit* target);
     Unit* GetTarget() const;
@@ -41,9 +43,11 @@ public:
     float GetRange() const;
     virtual std::string GetPreActionName() const;
 
-    void RequestPull(Unit* target, bool resetTime = true);
+    void RequestPull(Unit* target, bool resetFailures = true);
     void OnPullStarted();
     void OnPullEnded();
+    void RecordPullFailure();
+    void ResetPullFailures();
 
     ReactStates GetPetReactState() const { return petReactState; }
     void SetPetReactState(ReactStates reactState) { petReactState = reactState; }
@@ -56,6 +60,7 @@ private:
     std::string const preAction;
     bool pendingToStart = false;
     time_t pullStartTime = 0;
+    uint8 pullFailureCount = 0;
     ReactStates petReactState = REACT_DEFENSIVE;
 };
 

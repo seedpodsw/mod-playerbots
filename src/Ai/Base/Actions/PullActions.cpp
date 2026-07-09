@@ -28,6 +28,68 @@ bool IsWithinPullRange(Player* bot, Unit* target, PullStrategy const* strategy)
 {
     return bot && target && strategy && bot->GetExactDist(target) <= strategy->GetRange();
 }
+
+bool IsBotInWater(Player* bot)
+{
+    if (!bot)
+        return false;
+
+    LiquidData const liquidData = bot->GetLiquidData();
+    return liquidData.Status == LIQUID_MAP_IN_WATER || liquidData.Status == LIQUID_MAP_UNDER_WATER;
+}
+
+void RestorePullPetReactState(Player* bot, PullStrategy* strategy)
+{
+    if (!bot || !strategy || !strategy->HasPullStarted())
+        return;
+
+    if (Pet* pet = bot->GetPet())
+    {
+        if (Creature* creature = pet->ToCreature())
+            creature->SetReactState(strategy->GetPetReactState());
+    }
+}
+
+void AbortPullInProgress(PlayerbotAI* botAI, Player* bot, PullStrategy* strategy)
+{
+    RestorePullPetReactState(bot, strategy);
+    strategy->OnPullEnded();
+
+    if (PullStrategy* combatPull = dynamic_cast<PullStrategy*>(botAI->GetStrategy("pull", BOT_STATE_COMBAT)))
+    {
+        if (combatPull != strategy)
+            combatPull->OnPullEnded();
+    }
+
+    if (PullStrategy* nonCombatPull = dynamic_cast<PullStrategy*>(botAI->GetStrategy("pull", BOT_STATE_NON_COMBAT)))
+    {
+        if (nonCombatPull != strategy)
+            nonCombatPull->OnPullEnded();
+    }
+}
+
+bool AbortStuckPull(PlayerbotAI* botAI, Player* bot, PullStrategy* strategy, AiObjectContext* context,
+    bool engageTarget, bool notifyMaster = true)
+{
+    if (!botAI || !strategy)
+        return false;
+
+    Unit* target = strategy->GetTarget();
+    RestorePullPetReactState(bot, strategy);
+    AbortPullInProgress(botAI, bot, strategy);
+
+    if (engageTarget && target)
+        context->GetValue<Unit*>("current target")->Set(target);
+
+    if (notifyMaster)
+    {
+        std::string const text = PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "pull_failed_engaging", "Pull failed, engaging normally", {});
+        botAI->TellMaster(text);
+    }
+
+    return engageTarget;
+}
 }
 
 bool PullRequestAction::Execute(Event event)
@@ -76,10 +138,40 @@ bool PullRequestAction::Execute(Event event)
         return false;
     }
 
+    bool const pullInProgress = strategy->HasPullStarted() || strategy->IsPullPendingToStart() || strategy->HasTarget();
+
+    if (target->IsInCombat())
+    {
+        if (pullInProgress)
+            AbortPullInProgress(botAI, bot, strategy);
+
+        context->GetValue<Unit*>("current target")->Set(target);
+        botAI->ChangeEngine(BOT_STATE_COMBAT);
+        botAI->SetNextCheckDelay(sPlayerbotAIConfig.reactDelay);
+        return true;
+    }
+
+    if (pullInProgress)
+    {
+        Unit* currentPullTarget = strategy->GetTarget();
+        if (currentPullTarget && currentPullTarget->GetGUID() == target->GetGUID())
+        {
+            std::string const text = PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "pull_already_in_progress", "Already pulling that target", {});
+            botAI->TellError(text);
+            return false;
+        }
+
+        AbortPullInProgress(botAI, bot, strategy);
+    }
+
     PositionMap& posMap = AI_VALUE(PositionMap&, "position");
-    PositionInfo pullPosition = posMap["pull"];
-    pullPosition.Set(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), bot->GetMapId());
-    posMap["pull"] = pullPosition;
+    if (!pullInProgress || !posMap["pull"].isSet())
+    {
+        PositionInfo pullPosition = posMap["pull"];
+        pullPosition.Set(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), bot->GetMapId());
+        posMap["pull"] = pullPosition;
+    }
 
     strategy->RequestPull(target);
     context->GetValue<Unit*>("current target")->Set(target);
@@ -179,7 +271,12 @@ bool PullAction::Execute(Event event)
         return false;
 
     if (target->IsInCombat())
+    {
+        if (strategy->HasPullStarted() || strategy->IsPullPendingToStart())
+            return AbortStuckPull(botAI, bot, strategy, context, true);
+
         return false;
+    }
 
     if (!IsWithinPullRange(bot, target, strategy))
     {
@@ -196,8 +293,18 @@ bool PullAction::Execute(Event event)
 
     context->GetValue<Unit*>("current target")->Set(target);
     if (!botAI->DoSpecificAction(strategy->GetPullActionName(), event, true))
-        return false;
+    {
+        if (strategy->HasPullStarted())
+        {
+            strategy->RecordPullFailure();
+            if (strategy->ShouldAbortPull())
+                return AbortStuckPull(botAI, bot, strategy, context, true);
+        }
 
+        return false;
+    }
+
+    strategy->ResetPullFailures();
     return true;
 }
 
@@ -294,8 +401,19 @@ bool ReachPullAction::Execute(Event /*event*/)
     if (!target || !strategy)
         return false;
 
+    if (IsBotInWater(bot) && IsWithinPullRange(bot, target, strategy))
+        return false;
+
     float const reachDistance = GetPullReachDistance(bot, target, strategy);
-    return ReachCombatTo(target, reachDistance);
+    bool const moved = ReachCombatTo(target, reachDistance);
+    if (!moved && strategy->HasPullStarted())
+    {
+        strategy->RecordPullFailure();
+        if (strategy->ShouldAbortPull())
+            return AbortStuckPull(botAI, bot, strategy, context, true);
+    }
+
+    return moved;
 }
 
 bool ReachPullAction::isUseful()
@@ -308,7 +426,13 @@ bool ReachPullAction::isUseful()
 
     PullStrategy* strategy = PullStrategy::Get(botAI);
     Unit* target = strategy ? strategy->GetTarget() : nullptr;
-    return target && !IsWithinPullRange(bot, target, strategy);
+    if (!target)
+        return false;
+
+    if (IsBotInWater(bot) && IsWithinPullRange(bot, target, strategy))
+        return false;
+
+    return !IsWithinPullRange(bot, target, strategy);
 }
 
 Unit* ReachPullAction::GetTarget()

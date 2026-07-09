@@ -538,13 +538,15 @@ public:
     // Checks if the bot is really a player. Players always have themselves as master.
     bool IsRealPlayer() { return master ? (master == bot) : false; }
     // Bot has a master that is a player.
-    bool HasRealPlayerMaster();
+    bool HasRealPlayerMaster() const;
     // Bot has a master that is activly playing.
     bool HasActivePlayerMaster();
     // Get the group leader or the master of the bot.
     // Checks if the bot is summoned as alt of a player
     bool IsAlt();
     Player* GetGroupLeader();
+    void MarkAmbientGroupLeftForProgression(ObjectGuid leaderGuid);
+    bool ShouldDeclineAmbientGroupInvite(Player const* inviter) const;
     // Stable per-bot number, salted per trait — use for persistent bot identity (grouper/guilder type).
     uint32 GetFixedBotNumber(BotTypeNumber typeNumber, uint32 maxNum = 100);
     // Reshuffles every BotActiveAloneDurationSeconds — use only for the activity rotation.
@@ -608,6 +610,8 @@ public:
     NewRpgInfo rpgInfo;
     NewRpgStatistic rpgStatistic;
     std::unordered_set<uint32> lowPriorityQuest;
+    ObjectGuid ambientGroupLeaveLeaderGuid;
+    time_t ambientGroupLeaveTime = 0;
     time_t bgReleaseAttemptTime = 0;
 
     // Schedules a callback to run once after <delayMs> milliseconds.

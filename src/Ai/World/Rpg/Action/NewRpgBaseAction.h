@@ -50,10 +50,13 @@ protected:
     bool TurnInQuest(Quest const* quest, ObjectGuid guid);
     bool OrganizeQuestLog();
     bool PruneObsoleteQuests();
+    bool HasLevelAppropriateContentNearby();
+    bool TryRelocateForProgressionStagnation();
 
 protected:
+    float GetQuestPoiMaxDistance() const;
     bool GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete = false);
-    static WorldPosition SelectRandomGrindPos(Player* bot);
+    static WorldPosition SelectRandomGrindPos(Player* bot, bool forceRelocate = false);
     static WorldPosition SelectRandomCampPos(Player* bot);
     bool SelectRandomFlightTaxiNode(uint32& flightMasterEntry, WorldPosition& flightMasterPos, std::vector<uint32>& path);
     bool RandomChangeStatus(std::vector<NewRpgStatus> candidateStatus);

@@ -18,7 +18,7 @@ public:
 
     bool Execute(Event event) override;
 
-    virtual bool Leave();
+    virtual bool Leave(bool leftForProgression = false);
 };
 
 class PartyCommandAction : public LeaveGroupAction
@@ -41,6 +41,24 @@ class LeaveFarAwayAction : public LeaveGroupAction
 {
 public:
     LeaveFarAwayAction(PlayerbotAI* botAI) : LeaveGroupAction(botAI, "leave far away") {}
+
+    bool Execute(Event event) override;
+    bool isUseful() override;
+};
+
+class LeaveForProgressionAction : public LeaveGroupAction
+{
+public:
+    LeaveForProgressionAction(PlayerbotAI* botAI) : LeaveGroupAction(botAI, "leave for progression") {}
+
+    bool Execute(Event event) override;
+    bool isUseful() override;
+};
+
+class PruneProgressionQuestsAction : public Action
+{
+public:
+    PruneProgressionQuestsAction(PlayerbotAI* botAI) : Action(botAI, "prune progression quests") {}
 
     bool Execute(Event event) override;
     bool isUseful() override;

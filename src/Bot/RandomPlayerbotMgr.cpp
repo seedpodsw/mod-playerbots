@@ -29,8 +29,9 @@
 #include "MapMgr.h"
 #include "NewRpgInfo.h"
 #include "NewRpgStrategy.h"
-#include "ObjectGuid.h"
-#include "PerfMonitor.h"
+#include "ObjectAccessor.h"
+#include "QuestDef.h"
+#include "QuestPackets.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
@@ -2404,6 +2405,23 @@ int32 GetPreferredMinMobLevel(uint8 progressionLevel)
     return std::max(1, int32(progressionLevel) - slack);
 }
 
+int32 GetPreferredMinQuestLevel(uint8 progressionLevel)
+{
+    return GetPreferredMinMobLevel(progressionLevel);
+}
+
+bool IsQuestBelowProgressionLevel(uint8 progressionLevel, Quest const* quest)
+{
+    if (!quest)
+        return true;
+
+    int32 questLevel = quest->GetQuestLevel();
+    if (questLevel < 0)
+        questLevel = progressionLevel;
+
+    return questLevel < GetPreferredMinQuestLevel(progressionLevel);
+}
+
 uint8 GetProgressionLevel(Player* bot)
 {
     if (!bot)
@@ -2431,7 +2449,323 @@ float GetNearbyPartyRadius()
 {
     return sPlayerbotAIConfig.lootDistance * 3.0f;
 }
+
+bool HasValidProgressionQuest(Player* bot)
+{
+    if (!bot)
+        return false;
+
+    uint8 const level = bot->GetLevel();
+    for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
+    {
+        uint32 questId = bot->GetQuestSlotQuestId(i);
+        if (!questId)
+            continue;
+
+        Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+
+        if (IsQuestTrivialForLevel(level, quest))
+            continue;
+
+        if (IsQuestBelowProgressionLevel(level, quest))
+            continue;
+
+        if (quest->IsRepeatable() || quest->IsSeasonal())
+            continue;
+
+        return true;
+    }
+
+    return false;
+}
+
+bool HasAppropriateMobNearby(Player* bot, PlayerbotAI* botAI)
+{
+    if (!bot || !botAI)
+        return false;
+
+    int32 const minMobLevel = GetPreferredMinMobLevel(bot->GetLevel());
+    float const scanRange = GetNearbyPartyRadius() * 2.0f;
+
+    if (Unit* target = botAI->GetAiObjectContext()->GetValue<Unit*>("grind target")->Get())
+    {
+        if (target->IsAlive() && int32(target->GetLevel()) >= minMobLevel && bot->GetDistance(target) <= scanRange)
+            return true;
+    }
+
+    std::list<Unit*> targets;
+    Acore::AnyUnitInObjectRangeCheck u_check(bot, scanRange);
+    Acore::UnitListSearcher<Acore::AnyUnitInObjectRangeCheck> searcher(bot, targets, u_check);
+    Cell::VisitObjects(bot, searcher, scanRange);
+
+    for (Unit* unit : targets)
+    {
+        if (!unit || !unit->IsAlive() || !unit->ToCreature())
+            continue;
+
+        if (!bot->isHonorOrXPTarget(unit) || !bot->IsHostileTo(unit))
+            continue;
+
+        if (int32(unit->GetLevel()) >= minMobLevel)
+            return true;
+    }
+
+    return false;
+}
 }  // namespace PlayerbotGroupProgression
+
+bool RandomPlayerbotMgr::ShouldUseOpenWorldProgressionChecks(Player* bot)
+{
+    if (!bot || bot->InBattleground())
+        return false;
+
+    if (!IsRandomBot(bot))
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || botAI->HasRealPlayerMaster())
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (group)
+    {
+        for (GroupReference const* gref = group->GetFirstMember(); gref; gref = gref->next())
+        {
+            Player* member = gref->GetSource();
+            if (!member || member == bot)
+                continue;
+
+            PlayerbotAI* memberAI = GET_PLAYERBOT_AI(member);
+            if (!memberAI || memberAI->IsRealPlayer() || memberAI->HasRealPlayerMaster())
+                return false;
+        }
+    }
+
+    return true;
+}
+
+bool RandomPlayerbotMgr::ShouldLeaveNearbyGroupForProgression(Player* bot)
+{
+    if (!sPlayerbotAIConfig.randomBotGroupNearbyLeaveForProgression)
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group || !IsBotLedNearbyGroup(group))
+        return false;
+
+    if (!ShouldUseOpenWorldProgressionChecks(bot))
+        return false;
+
+    Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID());
+    if (!leader)
+        leader = GetPlayerBot(group->GetLeaderGUID());
+
+    if (leader && leader != bot && std::abs(int32(leader->GetLevel()) - int32(bot->GetLevel())) > 4)
+        return true;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI)
+        return false;
+
+    if (PlayerbotGroupProgression::HasValidProgressionQuest(bot))
+        return false;
+
+    if (PlayerbotGroupProgression::HasAppropriateMobNearby(bot, botAI))
+        return false;
+
+    return true;
+}
+
+bool RandomPlayerbotMgr::IsNearbyGroupMemberAlignedForRelocation(Player* member)
+{
+    if (!member)
+        return false;
+
+    return !ShouldLeaveNearbyGroupForProgression(member);
+}
+
+namespace
+{
+bool IsRandomBotMapAllowed(uint32 mapId)
+{
+    return std::find(sPlayerbotAIConfig.randomBotMaps.begin(), sPlayerbotAIConfig.randomBotMaps.end(), mapId) !=
+           sPlayerbotAIConfig.randomBotMaps.end();
+}
+
+bool TryResolveProgressionHubLocation(Player* bot, WorldLocation const& loc, uint32& mapId, float& x, float& y,
+                                      float& z)
+{
+    if (!bot)
+        return false;
+
+    mapId = loc.GetMapId();
+    if (!IsRandomBotMapAllowed(mapId))
+        return false;
+
+    x = loc.GetPositionX();
+    y = loc.GetPositionY();
+    z = loc.GetPositionZ();
+
+    Map* map = sMapMgr->FindMap(mapId, 0);
+    if (!map)
+        return false;
+
+    AreaTableEntry const* zone = sAreaTableStore.LookupEntry(map->GetZoneId(bot->GetPhaseMask(), x, y, z));
+    if (!zone)
+        return false;
+
+    AreaTableEntry const* area = sAreaTableStore.LookupEntry(map->GetAreaId(bot->GetPhaseMask(), x, y, z));
+    if (!area)
+        return false;
+
+    if (zone->team == 4 && bot->GetTeamId() == TEAM_ALLIANCE)
+        return false;
+
+    if (zone->team == 2 && bot->GetTeamId() == TEAM_HORDE)
+        return false;
+
+    if (map->IsInWater(bot->GetPhaseMask(), x, y, z, bot->GetCollisionHeight()))
+        return false;
+
+    float ground = map->GetHeight(bot->GetPhaseMask(), x, y, z + 0.5f);
+    if (ground <= INVALID_HEIGHT)
+        return false;
+
+    z = 0.05f + ground;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || !botAI->StarterLevelDistanceCheck(bot, loc, true))
+        return false;
+
+    return true;
+}
+}  // namespace
+
+bool RandomPlayerbotMgr::TeleportBotToProgressionHub(Player* bot, uint32 mapId, float x, float y, float z)
+{
+    if (!bot || bot->IsBeingTeleported() || !bot->IsInWorld())
+        return false;
+
+    if (bot->IsRooted())
+        return false;
+
+    if (bot->InBattlegroundQueue() || bot->InBattleground() || bot->InArena())
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (botAI && botAI->HasPlayerNearby(150.0f))
+        return false;
+
+    bot->GetMotionMaster()->Clear();
+    if (botAI)
+        botAI->Reset(true);
+
+    bot->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_TELEPORTED | AURA_INTERRUPT_FLAG_CHANGE_MAP);
+    bot->TeleportTo(mapId, x, y, z, 0);
+    bot->SendMovementFlagUpdate();
+    return true;
+}
+
+bool RandomPlayerbotMgr::RelocateNearbyGroupForProgression(Player* leader)
+{
+    if (!sPlayerbotAIConfig.randomBotGroupNearbyRelocateParty)
+        return false;
+
+    if (!leader || !IsRandomBot(leader))
+        return false;
+
+    Group* group = leader->GetGroup();
+    if (!group || !IsBotLedNearbyGroup(group) || !group->IsLeader(leader->GetGUID()))
+        return false;
+
+    std::vector<WorldLocation> locs = sTravelMgr.GetTeleportLocations(leader);
+    if (locs.empty())
+        return false;
+
+    std::vector<WorldLocation> candidates = locs;
+    std::shuffle(candidates.begin(), candidates.end(), RandomEngine::Instance());
+
+    uint32 mapId = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    bool found = false;
+    for (WorldLocation const& loc : candidates)
+    {
+        if (TryResolveProgressionHubLocation(leader, loc, mapId, x, y, z))
+        {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found)
+        return false;
+
+    if (!TeleportBotToProgressionHub(leader, mapId, x, y, z))
+        return false;
+
+    for (GroupReference const* gref = group->GetFirstMember(); gref; gref = gref->next())
+    {
+        Player* member = gref->GetSource();
+        if (!member || member == leader)
+            continue;
+
+        if (!IsNearbyGroupMemberAlignedForRelocation(member))
+            continue;
+
+        TeleportBotToProgressionHub(member, mapId, x, y, z);
+    }
+
+    LOG_DEBUG("playerbots", "[Progression] {} relocated nearby group to hub Map:{} X:{} Y:{} Z:{}", leader->GetName(),
+              mapId, x, y, z);
+    return true;
+}
+
+bool RandomPlayerbotMgr::PruneProgressionQuests(Player* bot)
+{
+    if (!sPlayerbotAIConfig.dropObsoleteQuests)
+        return false;
+
+    if (!ShouldUseOpenWorldProgressionChecks(bot))
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI)
+        return false;
+
+    uint8 const level = bot->GetLevel();
+    bool dropped = false;
+
+    for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
+    {
+        uint32 questId = bot->GetQuestSlotQuestId(i);
+        if (!questId)
+            continue;
+
+        Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+
+        if (!PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest) &&
+            !PlayerbotGroupProgression::IsQuestBelowProgressionLevel(level, quest) && !quest->IsRepeatable() &&
+            !quest->IsSeasonal())
+            continue;
+
+        LOG_DEBUG("playerbots", "[Progression] {} prune quest {}", bot->GetName(), questId);
+        WorldPacket packet(CMSG_QUESTLOG_REMOVE_QUEST);
+        packet << (uint8)i;
+        WorldPackets::Quest::QuestLogRemoveQuest removeQuest(std::move(packet));
+        removeQuest.Read();
+        bot->GetSession()->HandleQuestLogRemoveQuest(removeQuest);
+        botAI->lowPriorityQuest.insert(questId);
+        dropped = true;
+    }
+
+    return dropped;
+}
 
 bool RandomPlayerbotMgr::ShouldUseOpenWorldProgression(Player* bot)
 {
@@ -2532,7 +2866,7 @@ void RandomPlayerbotMgr::UpdateRandomBotOpenWorldPvpFlag(Player* bot)
         bot->SetPvP(true);
 }
 
-bool RandomPlayerbotMgr::IsRandomBot(Player* bot)
+bool RandomPlayerbotMgr::IsRandomBot(Player* bot) const
 {
     if (bot && GET_PLAYERBOT_AI(bot))
     {
@@ -2547,7 +2881,7 @@ bool RandomPlayerbotMgr::IsRandomBot(Player* bot)
     return false;
 }
 
-bool RandomPlayerbotMgr::IsRandomBot(ObjectGuid::LowType bot)
+bool RandomPlayerbotMgr::IsRandomBot(ObjectGuid::LowType bot) const
 {
     ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>(bot);
     if (!sPlayerbotAIConfig.IsInRandomAccountList(sCharacterCache->GetCharacterAccountIdByGuid(guid)))

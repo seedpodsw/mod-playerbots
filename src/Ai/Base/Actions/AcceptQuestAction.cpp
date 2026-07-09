@@ -16,6 +16,9 @@ bool AcceptAllQuestsAction::ProcessQuest(Quest const* quest, Object* questGiver)
     {
         if (PlayerbotGroupProgression::IsQuestTrivialForLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), quest))
             return false;
+
+        if (PlayerbotGroupProgression::IsQuestBelowProgressionLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), quest))
+            return false;
     }
 
     if (!AcceptQuest(quest, questGiver->GetGUID())) return false;
@@ -141,7 +144,8 @@ bool AcceptQuestShareAction::Execute(Event event)
     }
 
     if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
-        PlayerbotGroupProgression::IsQuestTrivialForLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), qInfo))
+        (PlayerbotGroupProgression::IsQuestTrivialForLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), qInfo) ||
+         PlayerbotGroupProgression::IsQuestBelowProgressionLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), qInfo)))
     {
         bot->SetDivider(ObjectGuid::Empty);
         return false;

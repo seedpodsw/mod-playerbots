@@ -145,21 +145,40 @@ bool PullStrategy::CanDoPullAction(Unit* target)
     return true;
 }
 
-void PullStrategy::RequestPull(Unit* target, bool resetTime)
+void PullStrategy::RequestPull(Unit* target, bool resetFailures)
 {
     SetTarget(target);
     pendingToStart = true;
-    if (resetTime)
-        pullStartTime = time(nullptr);
+    if (resetFailures)
+        ResetPullFailures();
 }
 
-void PullStrategy::OnPullStarted() { pendingToStart = false; }
+void PullStrategy::OnPullStarted()
+{
+    pendingToStart = false;
+    pullStartTime = time(nullptr);
+    ResetPullFailures();
+}
 
 void PullStrategy::OnPullEnded()
 {
     pullStartTime = 0;
     pendingToStart = false;
+    ResetPullFailures();
     SetTarget(nullptr);
+}
+
+void PullStrategy::RecordPullFailure()
+{
+    if (!HasPullStarted())
+        return;
+
+    ++pullFailureCount;
+}
+
+void PullStrategy::ResetPullFailures()
+{
+    pullFailureCount = 0;
 }
 
 PullMultiplier::PullMultiplier(PlayerbotAI* botAI) : Multiplier(botAI, "pull") {}
@@ -170,7 +189,7 @@ float PullMultiplier::GetValue(Action* action)
     if (!strategy || !strategy->HasTarget() || !action)
         return 1.0f;
 
-    if (!strategy->IsPullPendingToStart() && !strategy->HasPullStarted())
+    if (!strategy->HasPullStarted())
         return 1.0f;
 
     std::string const actionName = action->getName();

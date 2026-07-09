@@ -92,6 +92,9 @@ bool InviteNearbyToGroupAction::Execute(Event /*event*/)
 
             if (playerAI->HasActivePlayerMaster())  // Do not invite alts of active players.
                 continue;
+
+            if (playerAI->ShouldDeclineAmbientGroupInvite(bot))
+                continue;
         }
 
         if (abs(int32(player->GetLevel() - bot->GetLevel())) > 2)

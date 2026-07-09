@@ -12,6 +12,8 @@ void GroupStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("often", { NextAction("invite nearby", 4.0f) }));
     triggers.push_back(new TriggerNode("random", { NextAction("invite guild", 4.0f) }));
     triggers.push_back(new TriggerNode("random", { NextAction("leave far away", 4.0f) }));
+    triggers.push_back(new TriggerNode("often", { NextAction("prune progression quests", 3.0f) }));
+    triggers.push_back(new TriggerNode("random", { NextAction("leave for progression", 8.0f) }));
     triggers.push_back(new TriggerNode("seldom", {
         NextAction("reset instances", 1.0f),
         NextAction("clean quest log", 6.0f)

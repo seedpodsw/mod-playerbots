@@ -64,8 +64,15 @@ uint8 GetProgressionLevel(Player* bot);
 uint8 GetQuestLevelRef(Player* bot);
 // Minimum mob level worth pulling while leveling as a party.
 int32 GetPreferredMinMobLevel(uint8 progressionLevel);
+// Minimum quest level worth keeping/accepting during open-world progression.
+int32 GetPreferredMinQuestLevel(uint8 progressionLevel);
+bool IsQuestBelowProgressionLevel(uint8 progressionLevel, Quest const* quest);
 // Party bubble radius for nearby-group grind, pull, share, and POI filtering.
 float GetNearbyPartyRadius();
+// True if the bot has at least one non-stale quest worth keeping for solo progression.
+bool HasValidProgressionQuest(Player* bot);
+// True if a level-appropriate hostile is nearby (grind target or scan).
+bool HasAppropriateMobNearby(Player* bot, PlayerbotAI* botAI);
 }
 
 struct CachedEvent
@@ -122,14 +129,24 @@ public:
 
     uint32 activeBots = 0;
     static bool HandlePlayerbotConsoleCommand(ChatHandler* handler, char const* args);
-    bool IsRandomBot(Player* bot);
-    bool IsRandomBot(ObjectGuid::LowType bot);
+    bool IsRandomBot(Player* bot) const;
+    bool IsRandomBot(ObjectGuid::LowType bot) const;
     // True for a persistent open-world group formed by random bots via RandomBotGroupNearby:
     // non-LFG, non-BG, led by a random bot with no real-player master. Always false when the
     // config is disabled, so all call sites gate on it without changing default behavior.
     bool IsBotLedNearbyGroup(Group* group);
     // Solo random bots and nearby-group leaders: drop gray quests and prefer level-appropriate grind.
     bool ShouldUseOpenWorldProgression(Player* bot);
+    // Per-bot progression checks (includes nearby-group members; for prune/leave only).
+    bool ShouldUseOpenWorldProgressionChecks(Player* bot);
+    // Leave ambient nearby group to resume solo RPG progression.
+    bool ShouldLeaveNearbyGroupForProgression(Player* bot);
+    // Member still benefits from party relocation (inverse of ShouldLeaveNearbyGroupForProgression).
+    bool IsNearbyGroupMemberAlignedForRelocation(Player* member);
+    // Teleport leader and aligned nearby-group members to the same level hub after walk relocation fails.
+    bool RelocateNearbyGroupForProgression(Player* leader);
+    // Drop trivial / below-progression quests for grouped or solo random bots.
+    bool PruneProgressionQuests(Player* bot);
     // Open-world PvP for random bots (not alts): flag, target, and engage rules.
     bool ShouldUseRandomBotOpenWorldPvp(Player* bot);
     bool IsRandomBotOpenWorldPvpArea(Player* bot);
@@ -277,6 +294,7 @@ private:
     uint32 AddRandomBots();
     bool ProcessBot(uint32 bot);
     void ScheduleRandomize(uint32 bot, uint32 time);
+    bool TeleportBotToProgressionHub(Player* bot, uint32 mapId, float x, float y, float z);
     void RandomTeleport(Player* bot);
     void RandomTeleport(Player* bot, std::vector<WorldLocation>& locs, bool hearth = false);
     uint32 GetZoneLevel(uint16 mapId, float teleX, float teleY, float teleZ);

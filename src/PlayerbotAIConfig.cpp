@@ -699,6 +699,14 @@ bool PlayerbotAIConfig::Initialize()
 
     syncLevelWithPlayers = sConfigMgr->GetOption<bool>("AiPlayerbot.SyncLevelWithPlayers", false);
     randomBotGroupNearby = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotGroupNearby", false);
+    randomBotGroupNearbyLeaveForProgression =
+        sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotGroupNearbyLeaveForProgression", true);
+    randomBotGroupNearbyLeaveDistanceMultiplier =
+        sConfigMgr->GetOption<float>("AiPlayerbot.RandomBotGroupNearbyLeaveDistanceMultiplier", 3.0f);
+    randomBotGroupNearbyRejoinCooldownMinutes =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyRejoinCooldownMinutes", 5);
+    randomBotGroupNearbyRelocateParty =
+        sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotGroupNearbyRelocateParty", true);
     randomBotNearbyGrouperWeightSolo = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Solo", 40);
     randomBotNearbyGrouperWeightMember =
         sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Member", 35);

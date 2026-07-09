@@ -395,6 +395,10 @@ public:
     bool autoLearnQuestSpells;
     bool autoTeleportForLevel;
     bool randomBotGroupNearby;
+    bool randomBotGroupNearbyLeaveForProgression = true;
+    float randomBotGroupNearbyLeaveDistanceMultiplier = 3.0f;
+    uint32 randomBotGroupNearbyRejoinCooldownMinutes = 5;
+    bool randomBotGroupNearbyRelocateParty = true;
     // Weighted social roles for ambient nearby grouping (random bots only; alts unchanged).
     uint32 randomBotNearbyGrouperWeightSolo = 40;
     uint32 randomBotNearbyGrouperWeightMember = 35;

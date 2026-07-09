@@ -6,6 +6,7 @@
 #include "LeaveGroupAction.h"
 
 #include "Event.h"
+#include "NewRpgInfo.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotOperations.h"
 #include "PlayerbotTextMgr.h"
@@ -109,10 +110,17 @@ bool UninviteAction::Execute(Event event)
     return false;
 }
 
-bool LeaveGroupAction::Leave()
+bool LeaveGroupAction::Leave(bool leftForProgression)
 {
     if (!botAI)
         return false;
+
+    bool const resumeSoloRpg = bot->GetGroup() && sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()) &&
+                               sRandomPlayerbotMgr.IsRandomBot(bot);
+
+    ObjectGuid leaderGuid;
+    if (leftForProgression && resumeSoloRpg && bot->GetGroup())
+        leaderGuid = bot->GetGroup()->GetLeaderGUID();
 
     Player* master = botAI -> GetMaster();
     if (master)
@@ -120,14 +128,22 @@ bool LeaveGroupAction::Leave()
             PlayerbotTextMgr::instance().GetBotTextOrDefault("goodbye", "Goodbye!", {}),
             PLAYERBOT_SECURITY_TALK);
 
+    botAI->rpgInfo.ChangeToIdle();
     botAI->LeaveOrDisbandGroup();
+
+    if (leftForProgression && leaderGuid)
+        botAI->MarkAmbientGroupLeftForProgression(leaderGuid);
+
+    if (resumeSoloRpg)
+        botAI->Reset(true);
+
     return true;
 }
 
 bool LeaveFarAwayAction::Execute(Event /*event*/)
 {
-    // allow bot to leave party when they want
-    return Leave();
+    bool const leftForProgression = sRandomPlayerbotMgr.ShouldLeaveNearbyGroupForProgression(bot);
+    return Leave(leftForProgression);
 }
 
 bool LeaveFarAwayAction::isUseful()
@@ -141,10 +157,24 @@ bool LeaveFarAwayAction::isUseful()
     if (!bot->GetGroup())
         return false;
 
-    // Persistent nearby groups rely on members staying together — distance/level decay
-    // would dissolve the party during normal follow lag.
-    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+    bool const nearbyGroup = sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup());
+
+    if (nearbyGroup)
+    {
+        if (sRandomPlayerbotMgr.ShouldLeaveNearbyGroupForProgression(bot))
+            return true;
+
+        Player* groupLeader = botAI->GetGroupLeader();
+        if (!groupLeader || (bot == groupLeader && !botAI->IsRealPlayer()))
+            return false;
+
+        float const leaveDistance =
+            sPlayerbotAIConfig.rpgDistance * sPlayerbotAIConfig.randomBotGroupNearbyLeaveDistanceMultiplier;
+        if (bot->GetMapId() != groupLeader->GetMapId() || bot->GetDistance2d(groupLeader) >= leaveDistance)
+            return true;
+
         return false;
+    }
 
     Player* groupLeader = botAI->GetGroupLeader();
     Player* trueMaster = botAI->GetMaster();
@@ -193,6 +223,40 @@ bool LeaveFarAwayAction::isUseful()
     }
 
     return false;
+}
+
+bool LeaveForProgressionAction::Execute(Event /*event*/)
+{
+    sRandomPlayerbotMgr.PruneProgressionQuests(bot);
+    return Leave(true);
+}
+
+bool LeaveForProgressionAction::isUseful()
+{
+    if (bot->InBattleground() || bot->InBattlegroundQueue() || !bot->GetGroup())
+        return false;
+
+    return sRandomPlayerbotMgr.ShouldLeaveNearbyGroupForProgression(bot);
+}
+
+bool PruneProgressionQuestsAction::Execute(Event /*event*/)
+{
+    return sRandomPlayerbotMgr.PruneProgressionQuests(bot);
+}
+
+bool PruneProgressionQuestsAction::isUseful()
+{
+    if (bot->InBattleground() || bot->InBattlegroundQueue())
+        return false;
+
+    if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(bot))
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group || !sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+        return false;
+
+    return true;
 }
 
 bool ReadyForInviteAction::Execute(Event event)

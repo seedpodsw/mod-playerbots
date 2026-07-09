@@ -556,6 +556,10 @@ bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
     if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
         return false;
 
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+        PlayerbotGroupProgression::IsQuestBelowProgressionLevel(level, quest))
+        return false;
+
     if (quest->IsRepeatable())
         return false;
 
@@ -626,8 +630,12 @@ bool NewRpgBaseAction::OrganizeQuestLog()
                           quest->IsRepeatable() || quest->IsSeasonal();
 
         if (!shouldDrop && sPlayerbotAIConfig.dropObsoleteQuests)
-            shouldDrop = PlayerbotGroupProgression::IsQuestTrivialForLevel(
-                PlayerbotGroupProgression::GetQuestLevelRef(bot), quest);
+        {
+            uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+            shouldDrop = PlayerbotGroupProgression::IsQuestTrivialForLevel(levelRef, quest);
+            if (!shouldDrop && sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+                shouldDrop = PlayerbotGroupProgression::IsQuestBelowProgressionLevel(levelRef, quest);
+        }
 
         if (shouldDrop)
         {
@@ -712,7 +720,7 @@ bool NewRpgBaseAction::PruneObsoleteQuests()
     if (!sPlayerbotAIConfig.dropObsoleteQuests)
         return false;
 
-    if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+    if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(bot))
         return false;
 
     uint8 const progressionLevel = PlayerbotGroupProgression::GetQuestLevelRef(bot);
@@ -893,6 +901,15 @@ static std::vector<float> GenerateRandomWeights(int n)
     return weights;
 }
 
+float NewRpgBaseAction::GetQuestPoiMaxDistance() const
+{
+    float maxDistance = 1500.0f;
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) && bot->GetLevel() < 10)
+        maxDistance = 3500.0f;
+
+    return maxDistance;
+}
+
 bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete)
 {
     Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
@@ -930,7 +947,7 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
                 dy += point.y * weights[i];
             }
 
-            if (bot->GetDistance2d(dx, dy) >= 1500.0f)
+            if (bot->GetDistance2d(dx, dy) >= GetQuestPoiMaxDistance())
                 continue;
 
             float dz = std::max(bot->GetMap()->GetHeight(dx, dy, MAX_HEIGHT), bot->GetMap()->GetWaterLevel(dx, dy));
@@ -974,6 +991,8 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
             incompleteObjectiveIdx.push_back(QUEST_OBJECTIVES_COUNT + i);
     }
 
+    float const maxPoiDistance = GetQuestPoiMaxDistance();
+
     // Get POIs to go
     for (const QuestPOI& qPoi : *poiVector)
     {
@@ -1002,7 +1021,7 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
             dy += point.y * weights[i];
         }
 
-        if (bot->GetDistance2d(dx, dy) >= 1500.0f)
+        if (bot->GetDistance2d(dx, dy) >= maxPoiDistance)
             continue;
 
         float dz = std::max(bot->GetMap()->GetHeight(dx, dy, MAX_HEIGHT), bot->GetMap()->GetWaterLevel(dx, dy));
@@ -1025,16 +1044,11 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
     return true;
 }
 
-WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot)
+WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelocate)
 {
     const std::vector<WorldLocation>& locs = sTravelMgr.GetLocsPerLevelCache(bot->GetLevel());
     float hiRange = 500.0f;
     float loRange = 2500.0f;
-    if (bot->GetLevel() < 5)
-    {
-        hiRange /= 3;
-        loRange /= 3;
-    }
     std::vector<WorldLocation> lo_prepared_locs, hi_prepared_locs;
 
     bool inCity = false;
@@ -1049,7 +1063,7 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot)
         if (bot->GetMapId() != loc.GetMapId())
             continue;
 
-        if (bot->GetExactDist(loc) > 2500.0f)
+        if (bot->GetExactDist(loc) > loRange)
             continue;
 
         if (!inCity && bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
@@ -1057,17 +1071,28 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot)
             continue;
 
         if (bot->GetExactDist(loc) < hiRange)
-        {
             hi_prepared_locs.push_back(loc);
-        }
 
-        if (bot->GetExactDist(loc) < loRange)
-        {
-            lo_prepared_locs.push_back(loc);
-        }
+        lo_prepared_locs.push_back(loc);
     }
+
     WorldPosition dest{};
-    if (urand(1, 100) <= 50 && !hi_prepared_locs.empty())
+    if (forceRelocate && !lo_prepared_locs.empty())
+    {
+        uint32 bestIdx = 0;
+        float bestDist = bot->GetExactDist(lo_prepared_locs[0]);
+        for (uint32 i = 1; i < lo_prepared_locs.size(); ++i)
+        {
+            float dist = bot->GetExactDist(lo_prepared_locs[i]);
+            if (dist > bestDist)
+            {
+                bestDist = dist;
+                bestIdx = i;
+            }
+        }
+        dest = lo_prepared_locs[bestIdx];
+    }
+    else if (urand(1, 100) <= 50 && !hi_prepared_locs.empty())
     {
         uint32 idx = urand(0, hi_prepared_locs.size() - 1);
         dest = hi_prepared_locs[idx];
@@ -1101,7 +1126,7 @@ WorldPosition NewRpgBaseAction::SelectRandomCampPos(Player* bot)
         if (bot->GetMapId() != loc.GetMapId())
             continue;
 
-        float range = bot->GetLevel() <= 5 ? 500.0f : 2500.0f;
+        float range = 2500.0f;
         if (bot->GetExactDist(loc) > range)
             continue;
 
@@ -1232,7 +1257,26 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
             }
             if (availableQuests.size())
             {
-                uint32 questId = availableQuests[urand(0, availableQuests.size() - 1)];
+                uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+                uint32 questId = availableQuests[0];
+                int32 bestLevel = -1;
+                for (uint32 id : availableQuests)
+                {
+                    Quest const* candidate = sObjectMgr->GetQuestTemplate(id);
+                    if (!candidate)
+                        continue;
+
+                    int32 questLevel = candidate->GetQuestLevel();
+                    if (questLevel < 0)
+                        questLevel = levelRef;
+
+                    if (questLevel > bestLevel)
+                    {
+                        bestLevel = questLevel;
+                        questId = id;
+                    }
+                }
+
                 const Quest* quest = sObjectMgr->GetQuestTemplate(questId);
                 if (quest)
                 {
@@ -1366,8 +1410,12 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
 
     Group* group = bot->GetGroup();
     float const partyRadius = PlayerbotGroupProgression::GetNearbyPartyRadius();
-    float const leadRadius = partyRadius * 2.0f;
+    float leadRadius = partyRadius * 2.0f;
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(bot) && bot->GetLevel() < 10)
+        leadRadius = std::max(leadRadius, GetQuestPoiMaxDistance());
+
     std::vector<POIInfo> filtered;
+    std::vector<POIInfo> relaxed;
 
     for (POIInfo const& poi : poiInfo)
     {
@@ -1380,6 +1428,8 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
         WorldPosition pos(bot->GetMapId(), dx, dy, dz);
         if (bot->GetDistance(pos) > leadRadius)
             continue;
+
+        relaxed.push_back(poi);
 
         bool partyCanFollow = true;
         for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
@@ -1399,6 +1449,112 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
             filtered.push_back(poi);
     }
 
-    poiInfo = std::move(filtered);
-    return !poiInfo.empty();
+    if (!filtered.empty())
+    {
+        poiInfo = std::move(filtered);
+        return true;
+    }
+
+    if (!relaxed.empty())
+    {
+        poiInfo = std::move(relaxed);
+        return true;
+    }
+
+    return false;
+}
+
+bool NewRpgBaseAction::HasLevelAppropriateContentNearby()
+{
+    if (Unit* target = AI_VALUE(Unit*, "grind target"))
+    {
+        if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+        {
+            uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
+            int32 const minMobLevel = PlayerbotGroupProgression::GetPreferredMinMobLevel(progressionLevel);
+            if (target->GetLevel() >= minMobLevel)
+                return true;
+        }
+        else
+        {
+            return true;
+        }
+    }
+
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+    {
+        uint32 questId = bot->GetQuestSlotQuestId(slot);
+        if (!questId || botAI->lowPriorityQuest.find(questId) != botAI->lowPriorityQuest.end())
+            continue;
+
+        Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+        if (!quest || !IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest))
+            continue;
+
+        std::vector<POIInfo> poiInfo;
+        if (GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true) && FilterQuestPoiForNearbyGroup(poiInfo))
+            return true;
+    }
+
+    return false;
+}
+
+bool NewRpgBaseAction::TryRelocateForProgressionStagnation()
+{
+    if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+        !sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(bot))
+        return false;
+
+    if (HasLevelAppropriateContentNearby())
+        return false;
+
+    Group* group = bot->GetGroup();
+    bool const nearbyGroup = group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group);
+
+    if (nearbyGroup)
+    {
+        if (sRandomPlayerbotMgr.ShouldLeaveNearbyGroupForProgression(bot))
+        {
+            botAI->LeaveOrDisbandGroup();
+            botAI->rpgInfo.ChangeToIdle();
+            botAI->Reset(true);
+            LOG_DEBUG("playerbots", "[New RPG] {} leaving nearby group for progression stagnation", bot->GetName());
+            return true;
+        }
+
+        if (!group->IsLeader(bot->GetGUID()))
+            return false;
+
+        WorldPosition pos = SelectRandomGrindPos(bot, true);
+        if (pos != WorldPosition())
+        {
+            botAI->rpgInfo.ChangeToGoGrind(pos);
+            LOG_DEBUG("playerbots", "[New RPG] {} leading nearby group to grind pos for progression Map:{} X:{} Y:{} Z:{}",
+                      bot->GetName(), pos.GetMapId(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
+            return true;
+        }
+
+        if (sRandomPlayerbotMgr.RelocateNearbyGroupForProgression(bot))
+        {
+            botAI->rpgInfo.ChangeToIdle();
+            LOG_DEBUG("playerbots", "[New RPG] {} party hub teleport for progression stagnation", bot->GetName());
+            return true;
+        }
+
+        return false;
+    }
+
+    WorldPosition pos = SelectRandomGrindPos(bot, true);
+    if (pos != WorldPosition())
+    {
+        botAI->rpgInfo.ChangeToGoGrind(pos);
+        LOG_DEBUG("playerbots", "[New RPG] {} relocating to grind pos for progression Map:{} X:{} Y:{} Z:{}",
+                  bot->GetName(), pos.GetMapId(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
+        return true;
+    }
+
+    sRandomPlayerbotMgr.RandomTeleportForLevel(bot);
+    botAI->Reset(true);
+    LOG_DEBUG("playerbots", "[New RPG] {} teleporting for progression stagnation", bot->GetName());
+    return true;
 }

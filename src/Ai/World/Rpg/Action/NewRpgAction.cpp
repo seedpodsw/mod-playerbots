@@ -96,9 +96,22 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
         }
         case RPG_WANDER_RANDOM:
         {
+            if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+                info.HasStatusPersisted(statusProgressionStagnationDuration) &&
+                TryRelocateForProgressionStagnation())
+            {
+                return true;
+            }
+
             // WANDER_RANDOM -> IDLE
             if (info.HasStatusPersisted(statusWanderRandomDuration))
             {
+                if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+                    TryRelocateForProgressionStagnation())
+                {
+                    return true;
+                }
+
                 info.ChangeToIdle();
                 return true;
             }
@@ -118,6 +131,12 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
             // DO_QUEST -> IDLE
             if (info.HasStatusPersisted(statusDoQuestDuration))
             {
+                if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+                    TryRelocateForProgressionStagnation())
+                {
+                    return true;
+                }
+
                 info.ChangeToIdle();
                 return true;
             }
@@ -325,6 +344,9 @@ bool NewRpgDoQuestAction::DoIncompleteQuest(NewRpgInfo::DoQuest& data)
         std::vector<POIInfo> poiInfo;
         if (!GetQuestPOIPosAndObjectiveIdx(questId, poiInfo) || !FilterQuestPoiForNearbyGroup(poiInfo))
         {
+            if (TryRelocateForProgressionStagnation())
+                return true;
+
             // can't find a poi pos to go, stop doing quest for now
             botAI->rpgInfo.ChangeToIdle();
             return true;

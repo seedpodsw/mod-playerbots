@@ -56,6 +56,9 @@ bool AcceptInvitationAction::Execute(Event /*event*/)
             accept = false;
     }
 
+    if (accept && inviter && !IsRealPlayerInviter(inviter) && botAI->ShouldDeclineAmbientGroupInvite(inviter))
+        accept = false;
+
     // Group modifications must run on the world thread; the operation re-validates state
     // and performs the post-accept AI setup (master, follow strategies, summon).
     auto answerOp = std::make_unique<GroupAnswerInviteOperation>(bot->GetGUID(), accept);

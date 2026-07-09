@@ -230,6 +230,21 @@ bool TankAttackChatShortcutAction::Execute(Event /*event*/)
     return true;
 }
 
+bool PullBackChatShortcutAction::Execute(Event /*event*/)
+{
+    if (!botAI->IsTank(bot))
+    {
+        botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "pull_back_tank_only", "Only tanks can use pull back", {}));
+        return false;
+    }
+
+    botAI->ChangeStrategy("+pull back", BOT_STATE_COMBAT);
+    botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+        "pull_back_enabled", "Pull back enabled", {}));
+    return true;
+}
+
 bool MaxDpsChatShortcutAction::Execute(Event /*event*/)
 {
     Player* master = GetMaster();
