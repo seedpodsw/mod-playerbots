@@ -30,7 +30,7 @@
 namespace
 {
 void ApplyNearbyGroupMovementTuning(PlayerbotAI* facade, Engine* nonCombatEngine, bool isNearbyGroupLeader,
-                                    bool isNearbyGroupMember)
+                                    [[maybe_unused]] bool isNearbyGroupMember)
 {
     if (auto* formation =
             dynamic_cast<FormationValue*>(facade->GetAiObjectContext()->GetValue<Formation*>("formation")))
@@ -39,12 +39,10 @@ void ApplyNearbyGroupMovementTuning(PlayerbotAI* facade, Engine* nonCombatEngine
     nonCombatEngine->removeStrategy("mount", false);
     nonCombatEngine->removeStrategy("duel", false);
     nonCombatEngine->removeStrategy("emote", false);
+    nonCombatEngine->removeStrategy("start duel", false);
 
     if (isNearbyGroupLeader)
         nonCombatEngine->removeStrategy("follow", false);
-
-    if (isNearbyGroupMember)
-        nonCombatEngine->removeStrategy("start duel", false);
 }
 }  // namespace
 

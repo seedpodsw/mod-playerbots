@@ -68,7 +68,7 @@ bool AutoShareQuestAction::Execute(Event /*event*/)
                 continue;
 
             float const shareRange = sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup())
-                                         ? sPlayerbotAIConfig.lootDistance * 3.0f
+                                         ? PlayerbotGroupProgression::GetNearbyPartyRadius()
                                          : 10.0f;
             if (bot->GetDistance(player) > shareRange)
                 continue;

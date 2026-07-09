@@ -118,7 +118,7 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
 
             if (isNearbyLeader)
             {
-                float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+                float const partyRadius = PlayerbotGroupProgression::GetNearbyPartyRadius();
 
                 if (distFromBot > partyRadius)
                     continue;
@@ -202,9 +202,7 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
 
 bool GrindTargetValue::needForQuest(Unit* target)
 {
-    uint8 const questLevelRef = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot)
-                                    ? PlayerbotGroupProgression::GetProgressionLevel(bot)
-                                    : bot->GetLevel();
+    uint8 const questLevelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
 
     QuestStatusMap& questMap = bot->getQuestStatusMap();
     for (auto& quest : questMap)
@@ -226,7 +224,7 @@ bool GrindTargetValue::needForQuest(Unit* target)
         {
             const QuestStatusData* questStatus = &bot->getQuestStatusMap()[questId];
 
-            if (questTemplate->GetQuestLevel() > bot->GetLevel() + 5)
+            if (questTemplate->GetQuestLevel() > questLevelRef + 5)
                 continue;
 
             for (int j = 0; j < QUEST_OBJECTIVES_COUNT; j++)

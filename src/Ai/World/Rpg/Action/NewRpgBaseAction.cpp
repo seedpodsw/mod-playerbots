@@ -551,9 +551,7 @@ uint32 NewRpgBaseAction::BestRewardIndex(Quest const* quest)
 
 bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
 {
-    uint8 const level = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot)
-                            ? PlayerbotGroupProgression::GetProgressionLevel(bot)
-                            : bot->GetLevel();
+    uint8 const level = PlayerbotGroupProgression::GetQuestLevelRef(bot);
 
     if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
         return false;
@@ -569,17 +567,33 @@ bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
 
 bool NewRpgBaseAction::IsQuestCapableDoing(Quest const* quest)
 {
-    bool highLevelQuest = bot->GetLevel() + 3 < bot->GetQuestLevel(quest);
-    if (highLevelQuest)
+    uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+    if (levelRef + 3 < bot->GetQuestLevel(quest))
         return false;
 
     // Elite quest and dungeon quest etc
     if (quest->GetType() != 0)
         return false;
 
-    // now we only capable of doing solo quests
     if (quest->GetSuggestedPlayers() >= 2)
+    {
+        Group* group = bot->GetGroup();
+        if (group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->IsLeader(bot->GetGUID()))
+        {
+            uint32 aliveCount = 0;
+            for (GroupReference const* itr = group->GetFirstMember(); itr; itr = itr->next())
+            {
+                Player* member = itr->GetSource();
+                if (member && member->IsAlive())
+                    ++aliveCount;
+            }
+
+            if (aliveCount >= quest->GetSuggestedPlayers())
+                return true;
+        }
+
         return false;
+    }
 
     return true;
 }
@@ -608,8 +622,14 @@ bool NewRpgBaseAction::OrganizeQuestLog()
             continue;
 
         const Quest* quest = sObjectMgr->GetQuestTemplate(questId);
-        if (!IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest) ||
-            bot->GetQuestStatus(questId) == QUEST_STATUS_FAILED)
+        bool shouldDrop = bot->GetQuestStatus(questId) == QUEST_STATUS_FAILED || !IsQuestCapableDoing(quest) ||
+                          quest->IsRepeatable() || quest->IsSeasonal();
+
+        if (!shouldDrop && sPlayerbotAIConfig.dropObsoleteQuests)
+            shouldDrop = PlayerbotGroupProgression::IsQuestTrivialForLevel(
+                PlayerbotGroupProgression::GetQuestLevelRef(bot), quest);
+
+        if (shouldDrop)
         {
             LOG_DEBUG("playerbots", "[New RPG] {} drop quest {}", bot->GetName(), questId);
             WorldPacket packet(CMSG_QUESTLOG_REMOVE_QUEST);
@@ -695,7 +715,7 @@ bool NewRpgBaseAction::PruneObsoleteQuests()
     if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
         return false;
 
-    uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
+    uint8 const progressionLevel = PlayerbotGroupProgression::GetQuestLevelRef(bot);
     bool dropped = false;
 
     for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
@@ -1345,7 +1365,7 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
         return !poiInfo.empty();
 
     Group* group = bot->GetGroup();
-    float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+    float const partyRadius = PlayerbotGroupProgression::GetNearbyPartyRadius();
     float const leadRadius = partyRadius * 2.0f;
     std::vector<POIInfo> filtered;
 

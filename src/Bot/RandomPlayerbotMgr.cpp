@@ -2196,13 +2196,16 @@ bool RandomPlayerbotMgr::IsBotLedNearbyGroup(Group* group)
     if (!IsRandomBot(leaderGuid.GetCounter()))
         return false;
 
-    // A real player (or a bot mastered by one) leading means this is a player-driven group.
-    if (Player* leader = ObjectAccessor::FindPlayer(leaderGuid))
-    {
-        PlayerbotAI* leaderAI = GET_PLAYERBOT_AI(leader);
-        if (!leaderAI || leaderAI->IsRealPlayer() || leaderAI->HasRealPlayerMaster())
-            return false;
-    }
+    Player* leader = ObjectAccessor::FindPlayer(leaderGuid);
+    if (!leader)
+        leader = GetPlayerBot(leaderGuid);
+
+    if (!leader || !leader->IsInWorld())
+        return false;
+
+    PlayerbotAI* leaderAI = GET_PLAYERBOT_AI(leader);
+    if (!leaderAI || leaderAI->IsRealPlayer() || leaderAI->HasRealPlayerMaster())
+        return false;
 
     return true;
 }
@@ -2242,7 +2245,7 @@ uint8 GetGroupProgressionLevel(Group const* group, Player* fallback)
     for (GroupReference const* itr = group->GetFirstMember(); itr; itr = itr->next())
     {
         Player* member = itr->GetSource();
-        if (!member || !member->IsAlive())
+        if (!member)
             continue;
 
         sum += member->GetLevel();
@@ -2271,6 +2274,22 @@ uint8 GetProgressionLevel(Player* bot)
         return GetGroupProgressionLevel(group, bot);
 
     return bot->GetLevel();
+}
+
+uint8 GetQuestLevelRef(Player* bot)
+{
+    if (!bot)
+        return 1;
+
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+        return GetProgressionLevel(bot);
+
+    return bot->GetLevel();
+}
+
+float GetNearbyPartyRadius()
+{
+    return sPlayerbotAIConfig.lootDistance * 3.0f;
 }
 }  // namespace PlayerbotGroupProgression
 

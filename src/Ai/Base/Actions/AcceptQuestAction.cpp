@@ -14,8 +14,7 @@ bool AcceptAllQuestsAction::ProcessQuest(Quest const* quest, Object* questGiver)
 {
     if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
     {
-        uint8 const level = PlayerbotGroupProgression::GetProgressionLevel(bot);
-        if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
+        if (PlayerbotGroupProgression::IsQuestTrivialForLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), quest))
             return false;
     }
 
@@ -138,6 +137,13 @@ bool AcceptQuestShareAction::Execute(Event event)
         botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
             "quest_cant_take_error", "I can't take this quest", {}));
 
+        return false;
+    }
+
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+        PlayerbotGroupProgression::IsQuestTrivialForLevel(PlayerbotGroupProgression::GetQuestLevelRef(bot), qInfo))
+    {
+        bot->SetDivider(ObjectGuid::Empty);
         return false;
     }
 

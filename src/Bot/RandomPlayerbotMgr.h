@@ -59,8 +59,12 @@ bool IsQuestTrivialForLevel(uint8 playerLevel, Quest const* quest);
 uint8 GetGroupProgressionLevel(Group const* group, Player* fallback);
 // Level used for gray-quest and grind decisions (group avg for nearby leaders, else bot level).
 uint8 GetProgressionLevel(Player* bot);
+// Level for quest gray/high-level checks (progression level when eligible, else bot level).
+uint8 GetQuestLevelRef(Player* bot);
 // Minimum mob level worth pulling while leveling as a party.
 int32 GetPreferredMinMobLevel(uint8 progressionLevel);
+// Party bubble radius for nearby-group grind, pull, share, and POI filtering.
+float GetNearbyPartyRadius();
 }
 
 struct CachedEvent

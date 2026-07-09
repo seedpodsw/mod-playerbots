@@ -128,7 +128,7 @@ bool AttackAnythingAction::isUseful()
     {
         if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->IsLeader(bot->GetGUID()))
         {
-            float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+            float const partyRadius = PlayerbotGroupProgression::GetNearbyPartyRadius();
             if (bot->GetDistance(target) > partyRadius)
                 return false;
 
