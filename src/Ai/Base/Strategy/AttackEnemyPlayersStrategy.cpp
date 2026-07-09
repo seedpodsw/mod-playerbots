@@ -5,10 +5,16 @@
 
 #include "AttackEnemyPlayersStrategy.h"
 
+#include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 
 void AttackEnemyPlayersStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("enemy player near",
-                                       { NextAction("attack enemy player", 55.0f) }));
+    float priority = 55.0f;
+    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(botAI->GetBot()))
+        priority = float(sPlayerbotAIConfig.randomBotOpenWorldPvpAttackPriority);
+
+    triggers.push_back(new TriggerNode("random bot pvp seek", { NextAction("attack enemy player", priority) }));
+    triggers.push_back(new TriggerNode("enemy player near", { NextAction("attack enemy player", priority) }));
 }

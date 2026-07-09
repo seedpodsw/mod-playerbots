@@ -463,6 +463,9 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     {
         LogPlayerLocation();
     }
+
+    MaybeFlushDirtyEventCache();
+    sPlayerbotAIConfig.LogDbPerfStatsIfDue();
 }
 
 // void RandomPlayerbotMgr::ScaleBotActivity()
@@ -1552,6 +1555,8 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
         return false;
     }
 
+    UpdateRandomBotOpenWorldPvpFlag(bot);
+
     // leave group if leader is rndbot (unless it is a persistent RandomBotGroupNearby group)
     Group* group = bot->GetGroup();
     if (group && !group->isLFGGroup() && IsRandomBot(group->GetLeader()) && !IsBotLedNearbyGroup(group))
@@ -2163,7 +2168,10 @@ void RandomPlayerbotMgr::Refresh(Player* bot)
 
     bot->DurabilityRepairAll(false, 1.0f, false);
     bot->SetFullHealth();
-    bot->SetPvP(sWorld->IsPvPRealm());
+    if (ShouldUseRandomBotOpenWorldPvp(bot))
+        UpdateRandomBotOpenWorldPvpFlag(bot);
+    else
+        bot->SetPvP(sWorld->IsPvPRealm());
     PlayerbotFactory factory(bot, bot->GetLevel());
     factory.Refresh();
 
@@ -2324,6 +2332,72 @@ bool RandomPlayerbotMgr::ShouldUseOpenWorldProgression(Player* bot)
     }
 
     return true;
+}
+
+bool RandomPlayerbotMgr::ShouldUseRandomBotOpenWorldPvp(Player* bot)
+{
+    if (!sPlayerbotAIConfig.randomBotOpenWorldPvp || !bot || bot->InBattleground() || bot->InBattlegroundQueue())
+        return false;
+
+    if (!IsRandomBot(bot))
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || botAI->HasRealPlayerMaster())
+        return false;
+
+    return true;
+}
+
+bool RandomPlayerbotMgr::IsRandomBotOpenWorldPvpArea(Player* bot)
+{
+    if (!bot)
+        return false;
+
+    if (sPlayerbotAIConfig.IsPvpProhibited(bot->GetZoneId(), bot->GetAreaId()))
+        return false;
+
+    return bot->pvpInfo.IsInHostileArea || bot->pvpInfo.IsHostile;
+}
+
+bool RandomPlayerbotMgr::ShouldEngageOpenWorldPvpTarget(Player* bot, Player* enemy)
+{
+    if (!bot || !enemy || bot == enemy)
+        return false;
+
+    if (!ShouldUseRandomBotOpenWorldPvp(bot))
+        return false;
+
+    if (sPlayerbotAIConfig.IsPvpProhibited(enemy->GetZoneId(), enemy->GetAreaId()) ||
+        sPlayerbotAIConfig.IsPvpProhibited(bot->GetZoneId(), bot->GetAreaId()))
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (group && IsBotLedNearbyGroup(group) && !group->IsLeader(bot->GetGUID()))
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || !botAI->IsOpposing(enemy))
+        return false;
+
+    Player* master = botAI->GetMaster();
+    if (master && !master->IsPvP() && !master->IsFFAPvP())
+        return false;
+
+    if (IsRandomBot(enemy))
+        return enemy->IsPvP() || bot->IsPvP() || IsRandomBotOpenWorldPvpArea(bot) ||
+               IsRandomBotOpenWorldPvpArea(enemy);
+
+    return enemy->IsPvP() || enemy->IsFFAPvP();
+}
+
+void RandomPlayerbotMgr::UpdateRandomBotOpenWorldPvpFlag(Player* bot)
+{
+    if (!ShouldUseRandomBotOpenWorldPvp(bot))
+        return;
+
+    if (IsRandomBotOpenWorldPvpArea(bot) && !bot->IsPvP())
+        bot->SetPvP(true);
 }
 
 bool RandomPlayerbotMgr::IsRandomBot(Player* bot)
@@ -2524,6 +2598,48 @@ std::string RandomPlayerbotMgr::GetEventData(uint32 bot, std::string const& even
 uint32 RandomPlayerbotMgr::SetEventValue(uint32 bot, std::string const& event, uint32 value, uint32 validIn,
                                          std::string const& data)
 {
+    ++sPlayerbotAIConfig.dbPerfStats.setEventValueCalls;
+
+    UpdateEventCache(bot, event, value, validIn, data);
+
+    if (sPlayerbotAIConfig.randomBotEventPersistInterval == 0)
+        PersistEventValueToDatabase(bot, event, value, validIn, data);
+    else
+    {
+        MarkEventDirty(bot, event);
+        ++sPlayerbotAIConfig.dbPerfStats.setEventValueDeferred;
+    }
+
+    return value;
+}
+
+std::string RandomPlayerbotMgr::MakeDirtyEventKey(uint32 bot, std::string const& event)
+{
+    return std::to_string(bot) + ':' + event;
+}
+
+void RandomPlayerbotMgr::UpdateEventCache(uint32 bot, std::string const& event, uint32 value, uint32 validIn,
+                                          std::string const& data)
+{
+    BotEventCache& cache = eventCache[bot];
+    cache.loaded = true;
+
+    if (!value)
+    {
+        cache.events.erase(event);
+        return;
+    }
+
+    CachedEvent& e = cache.events[event];
+    e.value = value;
+    e.lastChangeTime = NowSeconds();
+    e.validIn = validIn;
+    e.data = data;
+}
+
+void RandomPlayerbotMgr::PersistEventValueToDatabase(uint32 bot, std::string const& event, uint32 value,
+                                                     uint32 validIn, std::string const& data)
+{
     PlayerbotsDatabaseTransaction trans = PlayerbotsDatabase.BeginTransaction();
 
     PlayerbotsDatabasePreparedStatement* stmt =
@@ -2546,30 +2662,179 @@ uint32 RandomPlayerbotMgr::SetEventValue(uint32 bot, std::string const& event, u
         if (!data.empty())
             stmt->SetData(6, data.c_str());
         else
-            stmt->SetData(6);  // NULL
+            stmt->SetData(6);
 
         trans->Append(stmt);
     }
 
     PlayerbotsDatabase.CommitTransaction(trans);
+    ++sPlayerbotAIConfig.dbPerfStats.setEventValueRowsPersisted;
+}
 
-    // Update in-memory cache
-    BotEventCache& cache = eventCache[bot];
-    cache.loaded = true;
+void RandomPlayerbotMgr::MarkEventDirty(uint32 bot, std::string const& event)
+{
+    dirtyEvents.insert(MakeDirtyEventKey(bot, event));
+}
 
-    if (!value)
+void RandomPlayerbotMgr::MaybeFlushDirtyEventCache()
+{
+    if (sPlayerbotAIConfig.randomBotEventPersistInterval == 0 || dirtyEvents.empty())
+        return;
+
+    time_t now = time(nullptr);
+    if (eventPersistLastFlush &&
+        now < eventPersistLastFlush + static_cast<time_t>(sPlayerbotAIConfig.randomBotEventPersistInterval))
+        return;
+
+    FlushDirtyEventCache();
+}
+
+void RandomPlayerbotMgr::FlushDirtyEventCache()
+{
+    if (dirtyEvents.empty())
+        return;
+
+    PlayerbotsDatabaseTransaction trans = PlayerbotsDatabase.BeginTransaction();
+    uint32 rowsPersisted = 0;
+
+    for (std::string const& key : dirtyEvents)
     {
-        cache.events.erase(event);
-        return 0;
+        size_t sep = key.find(':');
+        if (sep == std::string::npos)
+            continue;
+
+        uint32 bot = static_cast<uint32>(std::stoul(key.substr(0, sep)));
+        std::string event = key.substr(sep + 1);
+
+        uint32 value = 0;
+        uint32 validIn = 0;
+        std::string data;
+
+        if (BotEventCache* cache = eventCache.count(bot) ? &eventCache[bot] : nullptr)
+        {
+            if (auto it = cache->events.find(event); it != cache->events.end())
+            {
+                value = it->second.value;
+                validIn = it->second.validIn;
+                data = it->second.data;
+            }
+        }
+
+        PlayerbotsDatabasePreparedStatement* stmt =
+            PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_RANDOM_BOTS_BY_OWNER_AND_EVENT);
+        stmt->SetData(0, 0);
+        stmt->SetData(1, bot);
+        stmt->SetData(2, event.c_str());
+        trans->Append(stmt);
+        ++rowsPersisted;
+
+        if (value)
+        {
+            stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_INS_RANDOM_BOTS);
+            stmt->SetData(0, 0);
+            stmt->SetData(1, bot);
+            stmt->SetData(2, NowSeconds());
+            stmt->SetData(3, validIn);
+            stmt->SetData(4, event.c_str());
+            stmt->SetData(5, value);
+
+            if (!data.empty())
+                stmt->SetData(6, data.c_str());
+            else
+                stmt->SetData(6);
+
+            trans->Append(stmt);
+            ++rowsPersisted;
+        }
     }
 
-    CachedEvent& e = cache.events[event];  // create-on-write is OK here
-    e.value = value;
-    e.lastChangeTime = NowSeconds();
-    e.validIn = validIn;
-    e.data = data;
+    PlayerbotsDatabase.CommitTransaction(trans);
 
-    return value;
+    sPlayerbotAIConfig.dbPerfStats.setEventValueRowsPersisted += rowsPersisted;
+    ++sPlayerbotAIConfig.dbPerfStats.setEventValueFlushes;
+    dirtyEvents.clear();
+    eventPersistLastFlush = time(nullptr);
+}
+
+void RandomPlayerbotMgr::FlushEventCacheForBot(uint32 bot)
+{
+    if (sPlayerbotAIConfig.randomBotEventPersistInterval == 0 || dirtyEvents.empty())
+        return;
+
+    std::string const prefix = std::to_string(bot) + ':';
+    std::unordered_set<std::string> botDirtyEvents;
+
+    for (std::string const& key : dirtyEvents)
+    {
+        if (key.rfind(prefix, 0) == 0)
+            botDirtyEvents.insert(key);
+    }
+
+    if (botDirtyEvents.empty())
+        return;
+
+    PlayerbotsDatabaseTransaction trans = PlayerbotsDatabase.BeginTransaction();
+    uint32 rowsPersisted = 0;
+
+    for (std::string const& key : botDirtyEvents)
+    {
+        std::string event = key.substr(prefix.size());
+
+        uint32 value = 0;
+        uint32 validIn = 0;
+        std::string data;
+
+        if (BotEventCache* cache = eventCache.count(bot) ? &eventCache[bot] : nullptr)
+        {
+            if (auto it = cache->events.find(event); it != cache->events.end())
+            {
+                value = it->second.value;
+                validIn = it->second.validIn;
+                data = it->second.data;
+            }
+        }
+
+        PlayerbotsDatabasePreparedStatement* stmt =
+            PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_RANDOM_BOTS_BY_OWNER_AND_EVENT);
+        stmt->SetData(0, 0);
+        stmt->SetData(1, bot);
+        stmt->SetData(2, event.c_str());
+        trans->Append(stmt);
+        ++rowsPersisted;
+
+        if (value)
+        {
+            stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_INS_RANDOM_BOTS);
+            stmt->SetData(0, 0);
+            stmt->SetData(1, bot);
+            stmt->SetData(2, NowSeconds());
+            stmt->SetData(3, validIn);
+            stmt->SetData(4, event.c_str());
+            stmt->SetData(5, value);
+
+            if (!data.empty())
+                stmt->SetData(6, data.c_str());
+            else
+                stmt->SetData(6);
+
+            trans->Append(stmt);
+            ++rowsPersisted;
+        }
+
+        dirtyEvents.erase(key);
+    }
+
+    PlayerbotsDatabase.CommitTransaction(trans);
+
+    sPlayerbotAIConfig.dbPerfStats.setEventValueRowsPersisted += rowsPersisted;
+    ++sPlayerbotAIConfig.dbPerfStats.setEventValueFlushes;
+}
+
+void RandomPlayerbotMgr::ClearEventCaches()
+{
+    eventCache.clear();
+    dirtyEvents.clear();
+    eventPersistLastFlush = 0;
 }
 
 uint32 RandomPlayerbotMgr::GetValue(uint32 bot, std::string const& type) { return GetEventValue(bot, type); }
@@ -2610,7 +2875,7 @@ bool RandomPlayerbotMgr::HandlePlayerbotConsoleCommand(ChatHandler* /*handler*/,
     if (cmd == "reset")
     {
         PlayerbotsDatabase.Execute(PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_RANDOM_BOTS));
-        sRandomPlayerbotMgr.eventCache.clear();
+        sRandomPlayerbotMgr.ClearEventCaches();
         LOG_INFO("playerbots", "Random bots were reset for all players. Please restart the Server.");
         return true;
     }
@@ -2870,9 +3135,10 @@ void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
 
     if (IsRandomBot(player))
     {
-        // ObjectGuid::LowType guid = player->GetGUID().GetCounter(); //not used, conditional could be rewritten for
-        // simplicity. line marked for removal.
-        player->SetPvP(sWorld->IsPvPRealm());
+        if (ShouldUseRandomBotOpenWorldPvp(player))
+            UpdateRandomBotOpenWorldPvpFlag(player);
+        else
+            player->SetPvP(sWorld->IsPvPRealm());
     }
     else
     {

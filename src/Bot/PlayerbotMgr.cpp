@@ -277,18 +277,7 @@ void PlayerbotHolder::HandleBotPackets(WorldSession* session)
 
 void PlayerbotHolder::LogoutAllBots()
 {
-    /*
-    while (true)
-    {
-        PlayerBotMap::const_iterator itr = GetPlayerBotsBegin();
-        if (itr == GetPlayerBotsEnd())
-            break;
-
-        Player* bot= itr->second;
-        if (!GET_PLAYERBOT_AI(bot)->IsRealPlayer())
-            LogoutPlayerBot(bot->GetGUID());
-    }
-    */
+    sRandomPlayerbotMgr.FlushDirtyEventCache();
 
     PlayerBotMap bots = playerBots;
     for (auto& itr : bots)
@@ -301,7 +290,33 @@ void PlayerbotHolder::LogoutAllBots()
         if (!botAI || botAI->IsRealPlayer())
             continue;
 
-        LogoutPlayerBot(bot->GetGUID());
+        QueueLogoutPlayerBot(bot->GetGUID());
+    }
+}
+
+void PlayerbotHolder::QueueLogoutPlayerBot(ObjectGuid guid)
+{
+    if (std::find(pendingLogoutBots.begin(), pendingLogoutBots.end(), guid) != pendingLogoutBots.end())
+        return;
+
+    pendingLogoutBots.push_back(guid);
+}
+
+void PlayerbotHolder::ProcessPendingLogoutSaves(uint32 maxCount)
+{
+    if (pendingLogoutBots.empty() || !maxCount)
+        return;
+
+    uint32 processed = 0;
+    while (!pendingLogoutBots.empty() && processed < maxCount)
+    {
+        ObjectGuid guid = pendingLogoutBots.front();
+        pendingLogoutBots.pop_front();
+
+        if (GetPlayerBot(guid))
+            LogoutPlayerBot(guid);
+
+        ++processed;
     }
 }
 
@@ -364,7 +379,10 @@ void PlayerbotHolder::LogoutPlayerBot(ObjectGuid guid)
         if (!sRandomPlayerbotMgr.IsRandomBot(bot) && bot->isTaxiCheater())
             bot->SetTaxiCheater(false);
 
+        sRandomPlayerbotMgr.FlushEventCacheForBot(bot->GetGUID().GetCounter());
         bot->SaveToDB(false, false);
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+            ++sPlayerbotAIConfig.dbPerfStats.randomBotSaveToDB;
 
         WorldSession* botWorldSessionPtr = bot->GetSession();
         [[maybe_unused]] WorldSession* masterWorldSessionPtr = nullptr;     // Remove [[maybe_unused]] tag if timed logout implemented.
@@ -601,9 +619,15 @@ void PlayerbotHolder::OnBotLogin(Player* const bot)
         bot->RemovePlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
     }
 
-    bot->SaveToDB(false, false);
     bool addClassBot = sRandomPlayerbotMgr.IsAccountType(accountId, 2);
-    if (addClassBot && master && abs((int)master->GetLevel() - (int)bot->GetLevel()) > 3)
+    bool willRandomizeAfterLogin = addClassBot && master && abs((int)master->GetLevel() - (int)bot->GetLevel()) > 3;
+
+    if (!sRandomPlayerbotMgr.IsRandomBot(bot))
+        bot->SaveToDB(false, false);
+    else
+        ++sPlayerbotAIConfig.dbPerfStats.loginSaveSkipped;
+
+    if (willRandomizeAfterLogin)
     {
         // PlayerbotFactory factory(bot, master->GetLevel());
         // factory.Randomize(false);

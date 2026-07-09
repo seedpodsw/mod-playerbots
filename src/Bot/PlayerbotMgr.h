@@ -9,6 +9,7 @@
 #include "ObjectGuid.h"
 #include "Player.h"
 #include "PlayerbotAIBase.h"
+#include <deque>
 
 class ChatHandler;
 class PlayerbotAI;
@@ -41,6 +42,8 @@ public:
     void HandleBotPackets(WorldSession* session);
 
     void LogoutAllBots();
+    void QueueLogoutPlayerBot(ObjectGuid guid);
+    void ProcessPendingLogoutSaves(uint32 maxCount);
     void OnBotLogin(Player* const bot);
 
     std::vector<std::string> HandlePlayerbotCommand(char const* args, Player* master = nullptr);
@@ -58,6 +61,7 @@ protected:
 
     PlayerBotMap playerBots;
     static std::unordered_map<ObjectGuid, uint32> botLoading;
+    std::deque<ObjectGuid> pendingLogoutBots;
 };
 
 class PlayerbotMgr : public PlayerbotHolder

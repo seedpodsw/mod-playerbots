@@ -11,6 +11,7 @@
 #include "PlayerbotOperations.h"
 #include "Playerbots.h"
 #include "PlayerbotWorldThreadProcessor.h"
+#include "Random.h"
 #include "ServerFacade.h"
 
 #include <memory>
@@ -154,11 +155,21 @@ bool InviteNearbyToGroupAction::isUseful()
 
         uint32 memberCount = group->GetMembersCount();
 
-        if (memberCount >= uint8(grouperType))
+        uint8 const targetSize = botAI->GetNearbyGroupTargetSize();
+        if (targetSize > 0)
+        {
+            if (memberCount >= targetSize)
+                return false;
+        }
+        else if (memberCount >= uint8(grouperType))
             return false;
     }
 
     if (botAI->HasActivePlayerMaster())  // Alts do not invite randomly
+        return false;
+
+    if (sPlayerbotAIConfig.randomBotNearbyInviteChance < 100 &&
+        urand(1, 100) > sPlayerbotAIConfig.randomBotNearbyInviteChance)
         return false;
 
     return true;

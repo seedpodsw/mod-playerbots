@@ -4,7 +4,8 @@
  */
 
 #include "PlayerbotAIConfig.h"
-#include <iostream>
+#include "Log.h"
+#include <ctime>
 #include "BisListMgr.h"
 #include "Config.h"
 #include "NewRpgInfo.h"
@@ -245,6 +246,9 @@ bool PlayerbotAIConfig::Initialize()
         sConfigMgr->GetOption<int32>("AiPlayerbot.PermanentlyInWorldTime", 1 * YEAR);
     randomBotTeleportDistance = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotTeleportDistance", 100);
     randomBotsPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotsPerInterval", 60);
+    randomBotEventPersistInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotEventPersistInterval", 60);
+    randomBotLogoutSavesPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotLogoutSavesPerInterval", 8);
+    randomBotRepositoryDirtyOnly = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotRepositoryDirtyOnly", true);
     minRandomBotsPriceChangeInterval =
         sConfigMgr->GetOption<int32>("AiPlayerbot.MinRandomBotsPriceChangeInterval", 2 * HOUR);
     maxRandomBotsPriceChangeInterval =
@@ -442,6 +446,8 @@ bool PlayerbotAIConfig::Initialize()
 
     commandServerPort = sConfigMgr->GetOption<int32>("AiPlayerbot.CommandServerPort", 8888);
     perfMonEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.PerfMonEnabled", false);
+    dbPerfStatsEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.DbPerfStatsEnabled", false);
+    dbPerfStatsLogInterval = sConfigMgr->GetOption<uint32>("AiPlayerbot.DbPerfStatsLogInterval", 300);
 
     useGroundMountAtMinLevel = sConfigMgr->GetOption<int32>("AiPlayerbot.UseGroundMountAtMinLevel", 20);
     useFastGroundMountAtMinLevel = sConfigMgr->GetOption<int32>("AiPlayerbot.UseFastGroundMountAtMinLevel", 40);
@@ -689,6 +695,25 @@ bool PlayerbotAIConfig::Initialize()
 
     syncLevelWithPlayers = sConfigMgr->GetOption<bool>("AiPlayerbot.SyncLevelWithPlayers", false);
     randomBotGroupNearby = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotGroupNearby", false);
+    randomBotNearbyGrouperWeightSolo = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Solo", 40);
+    randomBotNearbyGrouperWeightMember =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Member", 35);
+    randomBotNearbyGrouperWeightLeader2 =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader2", 10);
+    randomBotNearbyGrouperWeightLeader3 =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader3", 8);
+    randomBotNearbyGrouperWeightLeader4 =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader4", 4);
+    randomBotNearbyGrouperWeightLeader5 =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyGrouperWeight.Leader5", 3);
+    randomBotNearbyMemberJoinChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyMemberJoinChance", 75);
+    randomBotNearbyInviteChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotGroupNearbyInviteChance", 50);
+    randomBotOpenWorldPvp = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotOpenWorldPvp", sWorld->IsPvPRealm());
+    randomBotOpenWorldPvpAttackPriority =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotOpenWorldPvpAttackPriority", 85);
+    randomBotOpenWorldPvpAggroRange = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotOpenWorldPvpAggroRange", 80);
+    randomBotOpenWorldPvpProactiveChance =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotOpenWorldPvpProactiveChance", 30);
 
     // arena
     randomBotArenaTeam2v2Count = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotArenaTeam2v2Count", 10);
@@ -1020,4 +1045,24 @@ std::vector<std::vector<uint32>> PlayerbotAIConfig::ParseTempPetTalentsOrder(uin
     std::sort(orders.begin(), orders.end(), [&](auto& lhs, auto& rhs) { return lhs.size() > rhs.size(); });
 
     return orders;
+}
+
+void PlayerbotAIConfig::LogDbPerfStatsIfDue()
+{
+    if (!dbPerfStatsEnabled || !dbPerfStatsLogInterval)
+        return;
+
+    time_t now = time(nullptr);
+    if (dbPerfStatsLastLogTime && now < dbPerfStatsLastLogTime + static_cast<time_t>(dbPerfStatsLogInterval))
+        return;
+
+    dbPerfStatsLastLogTime = now;
+
+    LOG_INFO("playerbots",
+             "DB perf: SetEventValue calls={} deferred={} flushes={} rows={} | SaveToDB={} loginSaveSkipped={} "
+             "repoSaveSkipped={}",
+             dbPerfStats.setEventValueCalls.load(), dbPerfStats.setEventValueDeferred.load(),
+             dbPerfStats.setEventValueFlushes.load(), dbPerfStats.setEventValueRowsPersisted.load(),
+             dbPerfStats.randomBotSaveToDB.load(), dbPerfStats.loginSaveSkipped.load(),
+             dbPerfStats.repositorySaveSkipped.load());
 }

@@ -1596,6 +1596,8 @@ void PlayerbotAI::ChangeStrategy(std::string const names, BotState type)
         return;
 
     e->ChangeStrategy(names);
+    if (GetAiObjectContext())
+        GetAiObjectContext()->MarkDirty();
 }
 
 void PlayerbotAI::ClearStrategies(BotState type)
@@ -1605,6 +1607,8 @@ void PlayerbotAI::ClearStrategies(BotState type)
         return;
 
     e->removeAllStrategies();
+    if (GetAiObjectContext())
+        GetAiObjectContext()->MarkDirty();
 }
 
 // Resets only the combat or non-combat engine: wipe strategies, repopulate with class/spec defaults,
@@ -1626,6 +1630,9 @@ void PlayerbotAI::SelectiveResetStrategies(BotState type)
         ApplyInstanceStrategies(bot->GetMapId());
 
     e->Init();
+
+    if (GetAiObjectContext())
+        GetAiObjectContext()->MarkDirty();
 }
 
 std::vector<std::string> PlayerbotAI::GetStrategies(BotState type)
@@ -4565,6 +4572,44 @@ GrouperType PlayerbotAI::GetGrouperType()
 {
     uint32 grouperNumber = GetFixedBotNumber(BotTypeNumber::GROUPER_TYPE_NUMBER, 100);
 
+    if (!HasRealPlayerMaster() && sRandomPlayerbotMgr.IsRandomBot(bot) && sPlayerbotAIConfig.randomBotGroupNearby)
+    {
+        uint32 total = sPlayerbotAIConfig.randomBotNearbyGrouperWeightSolo +
+                       sPlayerbotAIConfig.randomBotNearbyGrouperWeightMember +
+                       sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader2 +
+                       sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader3 +
+                       sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader4 +
+                       sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader5;
+
+        if (!total)
+            total = 100;
+
+        uint32 roll = GetFixedBotNumber(BotTypeNumber::GROUPER_TYPE_NUMBER, total);
+        uint32 cumulative = 0;
+
+        cumulative += sPlayerbotAIConfig.randomBotNearbyGrouperWeightSolo;
+        if (roll < cumulative)
+            return GrouperType::SOLO;
+
+        cumulative += sPlayerbotAIConfig.randomBotNearbyGrouperWeightMember;
+        if (roll < cumulative)
+            return GrouperType::MEMBER;
+
+        cumulative += sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader2;
+        if (roll < cumulative)
+            return GrouperType::LEADER_2;
+
+        cumulative += sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader3;
+        if (roll < cumulative)
+            return GrouperType::LEADER_3;
+
+        cumulative += sPlayerbotAIConfig.randomBotNearbyGrouperWeightLeader4;
+        if (roll < cumulative)
+            return GrouperType::LEADER_4;
+
+        return GrouperType::LEADER_5;
+    }
+
     if (grouperNumber < 20 && !HasRealPlayerMaster())
         return GrouperType::SOLO;
 
@@ -4581,6 +4626,20 @@ GrouperType PlayerbotAI::GetGrouperType()
         return GrouperType::LEADER_4;
 
     return GrouperType::LEADER_5;
+}
+
+uint8 PlayerbotAI::GetNearbyGroupTargetSize()
+{
+    GrouperType const gt = GetGrouperType();
+    if (gt < GrouperType::LEADER_2)
+        return 0;
+
+    uint8 const maxSize = static_cast<uint8>(gt);
+    uint8 const minSize = 2;
+    if (maxSize <= minSize)
+        return maxSize;
+
+    return minSize + GetFixedBotNumber(BotTypeNumber::NEARBY_GROUP_TARGET_SIZE_NUMBER, maxSize - minSize + 1);
 }
 
 GuilderType PlayerbotAI::GetGuilderType()

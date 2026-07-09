@@ -33,6 +33,7 @@
 #include "QuestDef.h"
 #include "RandomItemMgr.h"
 #include "RandomPlayerbotFactory.h"
+#include "RandomPlayerbotMgr.h"
 #include "ReputationMgr.h"
 #include "SharedDefines.h"
 #include "StatsWeightCalculator.h"
@@ -857,6 +858,8 @@ void PlayerbotFactory::Randomize(bool incremental)
     bot->SetHealth(bot->GetMaxHealth());
     bot->SetPower(POWER_MANA, bot->GetMaxPower(POWER_MANA));
     bot->SaveToDB(false, false);
+    if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        ++sPlayerbotAIConfig.dbPerfStats.randomBotSaveToDB;
     LOG_DEBUG("playerbots", "Initialization Done.");
     if (pmo)
         pmo->finish();

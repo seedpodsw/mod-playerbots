@@ -52,7 +52,11 @@ public:
 
     void OnDatabasesKeepAlive() override { PlayerbotsDatabase.KeepAlive(); }
 
-    void OnDatabasesClosing() override { PlayerbotsDatabase.Close(); }
+    void OnDatabasesClosing() override
+    {
+        sRandomPlayerbotMgr.FlushDirtyEventCache();
+        PlayerbotsDatabase.Close();
+    }
 
     void OnDatabaseWarnAboutSyncQueries(bool apply) override { PlayerbotsDatabase.WarnAboutSyncQueries(apply); }
 
@@ -379,6 +383,7 @@ public:
     void OnUpdate(uint32 diff) override
     {
         PlayerbotWorldThreadProcessor::instance().Update(diff);
+        sRandomPlayerbotMgr.ProcessPendingLogoutSaves(sPlayerbotAIConfig.randomBotLogoutSavesPerInterval);
         sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
     }
 };

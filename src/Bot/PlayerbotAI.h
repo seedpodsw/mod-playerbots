@@ -228,6 +228,7 @@ enum class BotTypeNumber : uint8
     ACTIVITY_TYPE_NUMBER = 1,
     GROUPER_TYPE_NUMBER = 2,
     GUILDER_TYPE_NUMBER = 3,
+    NEARBY_GROUP_TARGET_SIZE_NUMBER = 4,
 };
 
 enum class GrouperType : uint8
@@ -549,6 +550,7 @@ public:
     // Reshuffles every BotActiveAloneDurationSeconds — use only for the activity rotation.
     uint32 GetRotatingBotNumber(uint32 maxNum = 100);
     GrouperType GetGrouperType();
+    uint8 GetNearbyGroupTargetSize();
     GuilderType GetGuilderType();
     bool HasPlayerNearby(WorldPosition* pos, float range = sPlayerbotAIConfig.reactDistance);
     bool HasPlayerNearby(float range = sPlayerbotAIConfig.reactDistance);

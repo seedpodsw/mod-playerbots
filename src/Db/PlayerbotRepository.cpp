@@ -5,6 +5,21 @@
 
 #include "PlayerbotRepository.h"
 #include "AiObjectContext.h"
+#include "PlayerbotAIConfig.h"
+#include "RandomPlayerbotMgr.h"
+#include "DatabaseEnv.h"
+
+namespace
+{
+void AppendSaveValue(PlayerbotsDatabaseTransaction& trans, uint32 guid, std::string const key, std::string const value)
+{
+    PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_INS_DB_STORE);
+    stmt->SetData(0, guid);
+    stmt->SetData(1, key);
+    stmt->SetData(2, value);
+    trans->Append(stmt);
+}
+} // namespace
 
 void PlayerbotRepository::Load(PlayerbotAI* botAI)
 {
@@ -47,24 +62,35 @@ void PlayerbotRepository::Load(PlayerbotAI* botAI)
 
 void PlayerbotRepository::Save(PlayerbotAI* botAI)
 {
-    ObjectGuid::LowType guid = botAI->GetBot()->GetGUID().GetCounter();
+    AiObjectContext* context = botAI->GetAiObjectContext();
+    Player* bot = botAI->GetBot();
 
-    Reset(botAI);
+    if (sPlayerbotAIConfig.randomBotRepositoryDirtyOnly && sRandomPlayerbotMgr.IsRandomBot(bot) && context &&
+        !context->IsDirty())
+    {
+        ++sPlayerbotAIConfig.dbPerfStats.repositorySaveSkipped;
+        return;
+    }
+
+    ObjectGuid::LowType guid = bot->GetGUID().GetCounter();
+
+    PlayerbotsDatabaseTransaction trans = PlayerbotsDatabase.BeginTransaction();
 
     PlayerbotsDatabasePreparedStatement* deleteStatement =
         PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_DB_STORE);
     deleteStatement->SetData(0, guid);
-    PlayerbotsDatabase.Execute(deleteStatement);
+    trans->Append(deleteStatement);
 
-    std::vector<std::string> data = botAI->GetAiObjectContext()->Save();
+    std::vector<std::string> data = context->Save();
     for (std::vector<std::string>::iterator i = data.begin(); i != data.end(); ++i)
-    {
-        SaveValue(guid, "value", *i);
-    }
+        AppendSaveValue(trans, guid, "value", *i);
 
-    SaveValue(guid, "co", FormatStrategies("co", botAI->GetStrategies(BOT_STATE_COMBAT)));
-    SaveValue(guid, "nc", FormatStrategies("nc", botAI->GetStrategies(BOT_STATE_NON_COMBAT)));
-    SaveValue(guid, "dead", FormatStrategies("dead", botAI->GetStrategies(BOT_STATE_DEAD)));
+    AppendSaveValue(trans, guid, "co", FormatStrategies("co", botAI->GetStrategies(BOT_STATE_COMBAT)));
+    AppendSaveValue(trans, guid, "nc", FormatStrategies("nc", botAI->GetStrategies(BOT_STATE_NON_COMBAT)));
+    AppendSaveValue(trans, guid, "dead", FormatStrategies("dead", botAI->GetStrategies(BOT_STATE_DEAD)));
+
+    PlayerbotsDatabase.CommitTransaction(trans);
+    context->ClearDirty();
 }
 
 std::string const PlayerbotRepository::FormatStrategies(std::string const /*type*/, std::vector<std::string> strategies)
@@ -83,14 +109,5 @@ void PlayerbotRepository::Reset(PlayerbotAI* botAI)
 
     PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_DEL_DB_STORE);
     stmt->SetData(0, guid);
-    PlayerbotsDatabase.Execute(stmt);
-}
-
-void PlayerbotRepository::SaveValue(uint32 guid, std::string const key, std::string const value)
-{
-    PlayerbotsDatabasePreparedStatement* stmt = PlayerbotsDatabase.GetPreparedStatement(PLAYERBOTS_INS_DB_STORE);
-    stmt->SetData(0, guid);
-    stmt->SetData(1, key);
-    stmt->SetData(2, value);
     PlayerbotsDatabase.Execute(stmt);
 }

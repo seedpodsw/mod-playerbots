@@ -13,6 +13,7 @@
 #include <map>
 #include <algorithm>
 #include <string>
+#include <atomic>
 
 #include "DBCEnums.h"
 #include "SharedDefines.h"
@@ -68,6 +69,17 @@ enum NewRpgStatus : int
 };
 
 #define MAX_SPECNO 20
+
+struct DbPerfStats
+{
+    std::atomic<uint64_t> setEventValueCalls{0};
+    std::atomic<uint64_t> setEventValueDeferred{0};
+    std::atomic<uint64_t> setEventValueFlushes{0};
+    std::atomic<uint64_t> setEventValueRowsPersisted{0};
+    std::atomic<uint64_t> randomBotSaveToDB{0};
+    std::atomic<uint64_t> loginSaveSkipped{0};
+    std::atomic<uint64_t> repositorySaveSkipped{0};
+};
 
 class PlayerbotAIConfig
 {
@@ -152,6 +164,9 @@ public:
     uint32 permanentlyInWorldTime;
     uint32 minRandomBotPvpTime, maxRandomBotPvpTime;
     uint32 randomBotsPerInterval;
+    uint32 randomBotEventPersistInterval;
+    uint32 randomBotLogoutSavesPerInterval;
+    bool randomBotRepositoryDirtyOnly;
     uint32 minRandomBotsPriceChangeInterval, maxRandomBotsPriceChangeInterval;
     uint32 disabledWithoutRealPlayerLoginDelay, disabledWithoutRealPlayerLogoutDelay;
     bool randomBotJoinLfg;
@@ -328,6 +343,8 @@ public:
 
     uint32 commandServerPort;
     bool perfMonEnabled;
+    bool dbPerfStatsEnabled;
+    uint32 dbPerfStatsLogInterval;
     bool summonWhenGroup;
     bool randomBotShowHelmet;
     bool randomBotShowCloak;
@@ -377,6 +394,19 @@ public:
     bool autoLearnQuestSpells;
     bool autoTeleportForLevel;
     bool randomBotGroupNearby;
+    // Weighted social roles for ambient nearby grouping (random bots only; alts unchanged).
+    uint32 randomBotNearbyGrouperWeightSolo = 40;
+    uint32 randomBotNearbyGrouperWeightMember = 35;
+    uint32 randomBotNearbyGrouperWeightLeader2 = 10;
+    uint32 randomBotNearbyGrouperWeightLeader3 = 8;
+    uint32 randomBotNearbyGrouperWeightLeader4 = 4;
+    uint32 randomBotNearbyGrouperWeightLeader5 = 3;
+    uint32 randomBotNearbyMemberJoinChance = 75;
+    uint32 randomBotNearbyInviteChance = 50;
+    bool randomBotOpenWorldPvp = true;
+    uint32 randomBotOpenWorldPvpAttackPriority = 85;
+    uint32 randomBotOpenWorldPvpAggroRange = 80;
+    uint32 randomBotOpenWorldPvpProactiveChance = 30;
     int32 enableRandomBotTrading;
     uint32 tweakValue;  // Debugging config
 
@@ -463,9 +493,14 @@ public:
     std::vector<uint32> restrictedHealerDPSMaps;
     bool IsRestrictedHealerDPSMap(uint32 mapId) const;
 
+    DbPerfStats dbPerfStats;
+    void LogDbPerfStatsIfDue();
+
     std::vector<uint32> excludedHunterPetFamilies;
 
 private:
+    time_t dbPerfStatsLastLogTime = 0;
+
     PlayerbotAIConfig() = default;
     ~PlayerbotAIConfig() = default;
 

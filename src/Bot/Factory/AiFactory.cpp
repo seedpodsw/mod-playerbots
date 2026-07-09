@@ -19,6 +19,7 @@
 #include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
 #include "PriestAiObjectContext.h"
+#include "RandomPlayerbotMgr.h"
 #include "RogueAiObjectContext.h"
 #include "ShamanAiObjectContext.h"
 #include "SharedDefines.h"
@@ -612,16 +613,18 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
     {
         Player* master = facade->GetMaster();
 
-        // let 25% of free bots start duels.
-        if (!urand(0, 3))
-            nonCombatEngine->addStrategy("start duel", false);
-
-        bool isNearbyGroupMember = sRandomPlayerbotMgr.IsBotLedNearbyGroup(player->GetGroup()) &&
+        bool isNearbyGroupMember = player->GetGroup() &&
+                                   sRandomPlayerbotMgr.IsBotLedNearbyGroup(player->GetGroup()) &&
                                    player->GetGroup()->GetLeaderGUID() != player->GetGUID();
         bool isNearbyGroupLeader = player->GetGroup() &&
                                    sRandomPlayerbotMgr.IsBotLedNearbyGroup(player->GetGroup()) &&
                                    player->GetGroup()->GetLeaderGUID() == player->GetGUID();
         bool inNearbyGroup = isNearbyGroupMember || isNearbyGroupLeader;
+        bool openWorldPvp = sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(player);
+
+        // Open-world PvP uses faction combat; duels compete with that behavior.
+        if (!openWorldPvp && !inNearbyGroup && !urand(0, 3))
+            nonCombatEngine->addStrategy("start duel", false);
 
         // Nearby-group bots must not queue LFG/BG independently — they follow their leader
         // or lead the ambient party without dragging it into queues.
@@ -639,7 +642,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             // nonCombatEngine->addStrategy("guild");
 
             // Nearby grouping (invite nearby / invite guild / leave far away)
-            if (sPlayerbotAIConfig.randomBotGroupNearby)
+            if (sPlayerbotAIConfig.randomBotGroupNearby && facade->GetGrouperType() != GrouperType::SOLO)
                 nonCombatEngine->addStrategy("group", false);
 
             // Leaders drive shared quest progression (new rpg/rpg) and pull mobs via grind;
@@ -673,6 +676,14 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
             if (inNearbyGroup)
                 ApplyNearbyGroupMovementTuning(facade, nonCombatEngine, isNearbyGroupLeader, false);
+
+            if (openWorldPvp)
+            {
+                if (isNearbyGroupMember)
+                    nonCombatEngine->removeStrategy("pvp", false);
+                else
+                    nonCombatEngine->addStrategy("pvp", false);
+            }
         }
         else
         {
@@ -714,6 +725,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                             nonCombatEngine->removeStrategy("gather", false);
                             nonCombatEngine->removeStrategy("quest", false);
                             ApplyNearbyGroupMovementTuning(facade, nonCombatEngine, false, true);
+                            if (openWorldPvp)
+                                nonCombatEngine->removeStrategy("pvp", false);
                         }
                         else
                             nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);

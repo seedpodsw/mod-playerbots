@@ -5,10 +5,26 @@
 
 #include "EnemyPlayerValue.h"
 
+#include "CellImpl.h"
 #include "CombatManager.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
+#include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 #include "ServerFacade.h"
 #include "Vehicle.h"
+
+void NearestEnemyPlayersValue::FindUnits(std::list<Unit*>& targets)
+{
+    float scanRange = range;
+    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+        scanRange = float(sPlayerbotAIConfig.randomBotOpenWorldPvpAggroRange);
+
+    Acore::AnyUnfriendlyUnitInObjectRangeCheck u_check(bot, bot, scanRange);
+    Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(bot, targets, u_check);
+    Cell::VisitObjects(bot, searcher, scanRange);
+}
 
 bool NearestEnemyPlayersValue::AcceptUnit(Unit* unit)
 {
@@ -18,22 +34,36 @@ bool NearestEnemyPlayersValue::AcceptUnit(Unit* unit)
 
     bool inCannon = botAI->IsInVehicle(false, true);
     Player* enemy = dynamic_cast<Player*>(unit);
-    if (enemy && botAI->IsOpposing(enemy) && enemy->IsPvP() &&
-        !sPlayerbotAIConfig.IsPvpProhibited(enemy->GetZoneId(), enemy->GetAreaId()) &&
-        !enemy->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NON_ATTACKABLE_2) &&
-        ((inCannon || !enemy->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))) &&
-        /*!enemy->HasStealthAura() && !enemy->HasInvisibilityAura()*/ enemy->CanSeeOrDetect(bot) &&
-        !(enemy->HasSpiritOfRedemptionAura()))
-    {
-        // If with master, only attack if master is PvP flagged
-        Player* master = botAI->GetMaster();
-        if (master && !master->IsPvP() && !master->IsFFAPvP())
-            return false;
+    if (!enemy || !botAI->IsOpposing(enemy))
+        return false;
 
-        return true;
-    }
+    bool validTarget = false;
+    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+        validTarget = sRandomPlayerbotMgr.ShouldEngageOpenWorldPvpTarget(bot, enemy);
+    else if (enemy->IsPvP() || enemy->IsFFAPvP())
+        validTarget = true;
 
-    return false;
+    if (!validTarget)
+        return false;
+
+    if (sPlayerbotAIConfig.IsPvpProhibited(enemy->GetZoneId(), enemy->GetAreaId()))
+        return false;
+
+    if (enemy->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NON_ATTACKABLE_2))
+        return false;
+
+    if (!inCannon && enemy->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
+        return false;
+
+    if (!enemy->CanSeeOrDetect(bot) || enemy->HasSpiritOfRedemptionAura())
+        return false;
+
+    // If with master, only attack if master is PvP flagged
+    Player* master = botAI->GetMaster();
+    if (master && !master->IsPvP() && !master->IsFFAPvP())
+        return false;
+
+    return true;
 }
 
 Unit* EnemyPlayerValue::Calculate()
@@ -121,7 +151,12 @@ Unit* EnemyPlayerValue::Calculate()
 
     // 3. Check party attackers.
 
-    if (Group* pGroup = bot->GetGroup())
+    Group* pGroup = bot->GetGroup();
+    bool const nearbyGroup = pGroup && sRandomPlayerbotMgr.IsBotLedNearbyGroup(pGroup);
+    float const partyMemberRange = nearbyGroup ? PlayerbotGroupProgression::GetNearbyPartyRadius() : 30.0f;
+    float const partyAssistRange = nearbyGroup ? partyMemberRange * 2.0f : maxAggroDistance * 2.0f;
+
+    if (pGroup)
     {
         for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
@@ -130,13 +165,19 @@ Unit* EnemyPlayerValue::Calculate()
                 if (pMember == bot)
                     continue;
 
-                if (ServerFacade::instance().GetDistance2d(bot, pMember) > 30.0f)
+                if (ServerFacade::instance().GetDistance2d(bot, pMember) > partyMemberRange)
                     continue;
 
                 if (Unit* pAttacker = pMember->getAttackerForHelper())
-                    if (pAttacker->IsPlayer() && bot->IsWithinDist(pAttacker, maxAggroDistance * 2.0f) &&
+                    if (pAttacker->IsPlayer() && bot->IsWithinDist(pAttacker, partyAssistRange) &&
                         bot->IsWithinLOSInMap(pAttacker) && pAttacker != pVictim && pAttacker->CanSeeOrDetect(bot))
                         return pAttacker;
+
+                if (nearbyGroup && pMember->GetVictim() && pMember->GetVictim()->IsPlayer() &&
+                    bot->IsWithinDist(pMember->GetVictim(), partyAssistRange) &&
+                    bot->IsWithinLOSInMap(pMember->GetVictim()) && pMember->GetVictim() != pVictim &&
+                    pMember->GetVictim()->CanSeeOrDetect(bot))
+                    return pMember->GetVictim();
             }
         }
     }
@@ -147,7 +188,11 @@ Unit* EnemyPlayerValue::Calculate()
 float EnemyPlayerValue::GetMaxAttackDistance()
 {
     if (!bot->GetBattleground())
+    {
+        if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+            return float(sPlayerbotAIConfig.randomBotOpenWorldPvpAggroRange);
         return 60.0f;
+    }
 
     Battleground* bg = bot->GetBattleground();
     if (!bg)

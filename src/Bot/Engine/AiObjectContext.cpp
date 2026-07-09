@@ -100,6 +100,8 @@ void AiObjectContext::Load(std::vector<std::string> data)
 
         value->Load(text);
     }
+
+    ClearDirty();
 }
 
 Strategy* AiObjectContext::GetStrategy(std::string const name)

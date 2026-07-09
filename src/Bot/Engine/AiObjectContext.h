@@ -69,6 +69,10 @@ public:
     std::vector<std::string> Save();
     void Load(std::vector<std::string> data);
 
+    void MarkDirty() { _contextDirty = true; }
+    void ClearDirty() { _contextDirty = false; }
+    bool IsDirty() const { return _contextDirty; }
+
     std::vector<std::string> performanceStack;
 
     static void BuildAllSharedContexts();
@@ -90,6 +94,8 @@ private:
     static SharedNamedObjectContextList<Action> sharedActionContexts;
     static SharedNamedObjectContextList<Trigger> sharedTriggerContexts;
     static SharedNamedObjectContextList<UntypedValue> sharedValueContexts;
+
+    bool _contextDirty = false;
 };
 
 #endif

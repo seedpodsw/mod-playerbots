@@ -12,6 +12,7 @@
 #include "PlayerbotSecurity.h"
 #include "PlayerbotWorldThreadProcessor.h"
 #include "Playerbots.h"
+#include "Random.h"
 #include "RandomPlayerbotMgr.h"
 #include "WorldPacket.h"
 
@@ -44,6 +45,16 @@ bool AcceptInvitationAction::Execute(Event /*event*/)
         accept = false;
     else if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, inviter))
         accept = false;
+    else if (!IsRealPlayerInviter(inviter) && sRandomPlayerbotMgr.IsRandomBot(bot) &&
+             sPlayerbotAIConfig.randomBotGroupNearby && !botAI->HasRealPlayerMaster())
+    {
+        GrouperType const grouperType = botAI->GetGrouperType();
+        if (grouperType == GrouperType::SOLO)
+            accept = false;
+        else if (grouperType == GrouperType::MEMBER && sPlayerbotAIConfig.randomBotNearbyMemberJoinChance < 100 &&
+                 urand(1, 100) > sPlayerbotAIConfig.randomBotNearbyMemberJoinChance)
+            accept = false;
+    }
 
     // Group modifications must run on the world thread; the operation re-validates state
     // and performs the post-accept AI setup (master, follow strategies, summon).

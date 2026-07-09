@@ -13,8 +13,44 @@
 #include "ServerFacade.h"
 #include "BattlegroundAV.h"
 #include "BattlegroundEY.h"
+#include "PlayerbotAIConfig.h"
+#include "RandomPlayerbotMgr.h"
 
-bool EnemyPlayerNear::IsActive() { return AI_VALUE(Unit*, "enemy player target"); }
+bool EnemyPlayerNear::IsActive()
+{
+    if (!AI_VALUE(Unit*, "enemy player target"))
+        return false;
+
+    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+        return bot->IsInCombat();
+
+    return true;
+}
+
+bool RandomBotOpenWorldPvpSeekTrigger::IsActive()
+{
+    if (!sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+        return false;
+
+    if (bot->IsInCombat())
+        return false;
+
+    if (!sRandomPlayerbotMgr.IsRandomBotOpenWorldPvpArea(bot))
+        return false;
+
+    GuidVector players = AI_VALUE(GuidVector, "nearest enemy players");
+    if (players.empty())
+        return false;
+
+    if (!AI_VALUE(Unit*, "enemy player target"))
+        return false;
+
+    uint32 chance = sPlayerbotAIConfig.randomBotOpenWorldPvpProactiveChance;
+    if (chance < 100 && urand(1, 100) > chance)
+        return false;
+
+    return true;
+}
 
 bool PlayerHasNoFlag::IsActive()
 {

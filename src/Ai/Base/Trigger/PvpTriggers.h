@@ -18,6 +18,14 @@ public:
     bool IsActive() override;
 };
 
+class RandomBotOpenWorldPvpSeekTrigger : public Trigger
+{
+public:
+    RandomBotOpenWorldPvpSeekTrigger(PlayerbotAI* botAI) : Trigger(botAI, "random bot pvp seek", 3) {}
+
+    bool IsActive() override;
+};
+
 class PlayerHasNoFlag : public Trigger
 {
 public:

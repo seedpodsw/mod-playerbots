@@ -33,6 +33,7 @@ bool OutfitAction::Execute(Event event)
         if (!name.empty())
         {
             Save(name, items);
+            botAI->GetAiObjectContext()->MarkDirty();
             PlayerbotRepository::instance().Save(botAI);
 
             std::ostringstream out;
@@ -97,6 +98,7 @@ bool OutfitAction::Execute(Event event)
                 {{"%name", name}}));
 
             Save(name, ItemIds());
+            botAI->GetAiObjectContext()->MarkDirty();
             PlayerbotRepository::instance().Save(botAI);
             return true;
         }
@@ -108,6 +110,7 @@ bool OutfitAction::Execute(Event event)
                 {{"%name", name}}));
 
             Update(name);
+            botAI->GetAiObjectContext()->MarkDirty();
             PlayerbotRepository::instance().Save(botAI);
             return true;
         }
@@ -139,6 +142,7 @@ bool OutfitAction::Execute(Event event)
         }
 
         Save(name, outfit);
+        botAI->GetAiObjectContext()->MarkDirty();
         PlayerbotRepository::instance().Save(botAI);
     }
 

@@ -11,6 +11,7 @@
 #include "PlayerbotMgr.h"
 #include "GameTime.h"
 #include "PlayerbotCommandServer.h"
+#include <unordered_set>
 
 class Group;
 
@@ -129,6 +130,11 @@ public:
     bool IsBotLedNearbyGroup(Group* group);
     // Solo random bots and nearby-group leaders: drop gray quests and prefer level-appropriate grind.
     bool ShouldUseOpenWorldProgression(Player* bot);
+    // Open-world PvP for random bots (not alts): flag, target, and engage rules.
+    bool ShouldUseRandomBotOpenWorldPvp(Player* bot);
+    bool IsRandomBotOpenWorldPvpArea(Player* bot);
+    bool ShouldEngageOpenWorldPvpTarget(Player* bot, Player* enemy);
+    void UpdateRandomBotOpenWorldPvpFlag(Player* bot);
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
     void Randomize(Player* bot);
@@ -192,6 +198,9 @@ public:
 
     void PrepareAddclassCache();
     void Init();
+    void FlushDirtyEventCache();
+    void FlushEventCacheForBot(uint32 bot);
+    void ClearEventCaches();
     std::map<uint8, std::unordered_set<ObjectGuid>> addclassCache;
 
     // Account type management
@@ -250,6 +259,13 @@ private:
     std::string GetEventData(uint32 bot, std::string const& event);
     uint32 SetEventValue(uint32 bot, std::string const& event, uint32 value, uint32 validIn,
                          std::string const& data = "");
+    void UpdateEventCache(uint32 bot, std::string const& event, uint32 value, uint32 validIn,
+                          std::string const& data);
+    void PersistEventValueToDatabase(uint32 bot, std::string const& event, uint32 value, uint32 validIn,
+                                     std::string const& data);
+    void MarkEventDirty(uint32 bot, std::string const& event);
+    void MaybeFlushDirtyEventCache();
+    static std::string MakeDirtyEventKey(uint32 bot, std::string const& event);
     void GetBots();
     std::vector<uint32> GetBgBots(uint32 bracket);
     time_t BgCheckTimer;
@@ -272,6 +288,8 @@ private:
     std::map<uint32, std::map<uint32, std::vector<WorldLocation>>> rpgLocsCacheLevel;
     std::map<TeamId, std::map<BattlegroundTypeId, std::vector<uint32>>> BattleMastersCache;
     std::unordered_map<uint32, BotEventCache> eventCache;
+    std::unordered_set<std::string> dirtyEvents;
+    time_t eventPersistLastFlush = 0;
     std::list<uint32> currentBots;
     uint32 bgBotsCount;
     uint32 playersLevel;

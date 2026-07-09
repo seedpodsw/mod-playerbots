@@ -23,6 +23,9 @@ public:
 
 public:
     bool AcceptUnit(Unit* unit) override;
+
+protected:
+    void FindUnits(std::list<Unit*>& targets) override;
 };
 
 class EnemyPlayerValue : public UnitCalculatedValue
