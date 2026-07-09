@@ -11,8 +11,10 @@
 #include "Event.h"
 #include "GroupMgr.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
 #include "PositionValue.h"
+#include "RandomPlayerbotMgr.h"
 
 namespace
 {
@@ -75,16 +77,22 @@ uint32 PickWeightedBgQueue(std::vector<uint32> const& bgList, uint8 level)
 }
 }  // namespace
 
+namespace
+{
+bool ShouldDeferOpenWorldPvpBgQueue(Player* bot, PlayerbotAI* botAI)
+{
+    if (!sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot) || !bot->IsInCombat())
+        return false;
+
+    return botAI->GetAiObjectContext()->GetValue<Unit*>("enemy player target")->Get() != nullptr;
+}
+}  // namespace
+
 bool BGJoinAction::Execute(Event /*event*/)
 {
-    // BG events supersede the ambient nearby group: leave it now (queued to the world
-    // thread) and queue for the BG solo on a later tick, instead of dragging the whole
-    // party in via a group join. Groups re-form organically afterward.
+    // Defensive fallback: ambient nearby groups must not queue BG (strategy gated in AiFactory).
     if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
-    {
-        botAI->LeaveOrDisbandGroup();
         return false;
-    }
 
     uint32 queueType = AI_VALUE(uint32, "bg type");
     if (!queueType)  // force join to fill bg
@@ -298,6 +306,12 @@ bool BGJoinAction::canJoinBg(BattlegroundQueueTypeId queueTypeId, BattlegroundBr
 
 bool BGJoinAction::shouldJoinBg(BattlegroundQueueTypeId queueTypeId, BattlegroundBracketId bracketId)
 {
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+        return false;
+
+    if (ShouldDeferOpenWorldPvpBgQueue(bot, botAI))
+        return false;
+
     BattlegroundTypeId bgTypeId = BattlegroundMgr::BGTemplateId(queueTypeId);
     Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
     if (!bg)
@@ -408,6 +422,12 @@ bool BGJoinAction::isUseful()
 
     // do not try if with player master
     if (GET_PLAYERBOT_AI(bot)->HasActivePlayerMaster())
+        return false;
+
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+        return false;
+
+    if (ShouldDeferOpenWorldPvpBgQueue(bot, botAI))
         return false;
 
     // do not try if in group, if in group only leader can queue

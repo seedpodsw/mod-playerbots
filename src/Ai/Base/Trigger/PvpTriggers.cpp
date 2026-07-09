@@ -16,13 +16,50 @@
 #include "PlayerbotAIConfig.h"
 #include "RandomPlayerbotMgr.h"
 
+namespace
+{
+constexpr float OPEN_WORLD_PVP_CLOSE_RANGE = 25.0f;
+constexpr uint32 PVP_SEEK_DECISION_TIME_WINDOW = 2 * MINUTE;
+constexpr uint64_t FNV_OFFSET_BASIS = 14695981039346656037ULL;
+constexpr uint64_t FNV_PRIME = 1099511628211ULL;
+
+bool RollOpenWorldPvpSeek(Player* bot, Unit* enemy, uint32 chance)
+{
+    if (chance >= 100)
+        return true;
+
+    if (!chance)
+        return false;
+
+    time_t timeWindow = time(nullptr) / PVP_SEEK_DECISION_TIME_WINDOW;
+    uint64_t hash = FNV_OFFSET_BASIS;
+    hash ^= bot->GetGUID().GetRawValue();
+    hash *= FNV_PRIME;
+    if (enemy)
+    {
+        hash ^= enemy->GetGUID().GetRawValue();
+        hash *= FNV_PRIME;
+    }
+    hash ^= static_cast<uint64_t>(timeWindow);
+    hash *= FNV_PRIME;
+
+    return (hash % 100) < chance;
+}
+}  // namespace
+
 bool EnemyPlayerNear::IsActive()
 {
-    if (!AI_VALUE(Unit*, "enemy player target"))
+    Unit* enemy = AI_VALUE(Unit*, "enemy player target");
+    if (!enemy)
         return false;
 
     if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
-        return bot->IsInCombat();
+    {
+        if (bot->IsInCombat())
+            return true;
+
+        return bot->IsWithinDist(enemy, OPEN_WORLD_PVP_CLOSE_RANGE);
+    }
 
     return true;
 }
@@ -42,14 +79,11 @@ bool RandomBotOpenWorldPvpSeekTrigger::IsActive()
     if (players.empty())
         return false;
 
-    if (!AI_VALUE(Unit*, "enemy player target"))
+    Unit* enemy = AI_VALUE(Unit*, "enemy player target");
+    if (!enemy)
         return false;
 
-    uint32 chance = sPlayerbotAIConfig.randomBotOpenWorldPvpProactiveChance;
-    if (chance < 100 && urand(1, 100) > chance)
-        return false;
-
-    return true;
+    return RollOpenWorldPvpSeek(bot, enemy, sPlayerbotAIConfig.randomBotOpenWorldPvpProactiveChance);
 }
 
 bool PlayerHasNoFlag::IsActive()

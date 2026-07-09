@@ -504,6 +504,14 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
     if (!bot->GetMap())
         return; // instances are created and destroyed on demand
 
+    bool const inBattleground = bot->InBattleground();
+    if (wasInBattleground && !inBattleground && sRandomPlayerbotMgr.IsRandomBot(bot) && !HasRealPlayerMaster())
+    {
+        ResetStrategies();
+        sRandomPlayerbotMgr.UpdateRandomBotOpenWorldPvpFlag(bot);
+    }
+    wasInBattleground = inBattleground;
+
     // kinda expensive call to make on every single updateAI, do we really need this information?
     std::string const mapString = WorldPosition(bot).isOverworld() ? std::to_string(bot->GetMapId()) : "I";
     PerfMonitorOperation* pmo =

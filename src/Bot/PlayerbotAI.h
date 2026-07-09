@@ -614,6 +614,7 @@ public:
     ObjectGuid ambientGroupLeaveLeaderGuid;
     time_t ambientGroupLeaveTime = 0;
     time_t bgReleaseAttemptTime = 0;
+    bool wasInBattleground = false;
 
     // Schedules a callback to run once after <delayMs> milliseconds.
     void AddTimedEvent(std::function<void()> callback, uint32 delayMs);
