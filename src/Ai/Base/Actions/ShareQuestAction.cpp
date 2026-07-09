@@ -9,6 +9,7 @@
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
 #include "QuestPackets.h"
+#include "RandomPlayerbotMgr.h"
 
 bool ShareQuestAction::Execute(Event event)
 {
@@ -66,7 +67,10 @@ bool AutoShareQuestAction::Execute(Event /*event*/)
             if (!player || player == bot || !player->IsInWorld() || !botAI->IsSafe(player)) // skip self
                 continue;
 
-            if (bot->GetDistance(player) > 10)
+            float const shareRange = sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup())
+                                         ? sPlayerbotAIConfig.lootDistance * 3.0f
+                                         : 10.0f;
+            if (bot->GetDistance(player) > shareRange)
                 continue;
 
             if (!player->SatisfyQuestStatus(quest, false))
@@ -115,5 +119,10 @@ bool AutoShareQuestAction::Execute(Event /*event*/)
 
 bool AutoShareQuestAction::isUseful()
 {
-    return bot->GetGroup() && !botAI->HasActivePlayerMaster();
+    Group* group = bot->GetGroup();
+    if (!group || botAI->HasActivePlayerMaster())
+        return false;
+
+    // Only the party leader pushes quests so followers stay on shared objectives.
+    return group->IsLeader(bot->GetGUID());
 }

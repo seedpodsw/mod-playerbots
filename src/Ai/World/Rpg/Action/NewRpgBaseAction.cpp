@@ -91,11 +91,19 @@ bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
     }
     else if (++botAI->rpgInfo.stuckAttempts >= 5 && GetMSTimeDiffToNow(botAI->rpgInfo.stuckTs) >= stuckTime)
     {
+        botAI->rpgInfo.stuckTs = getMSTime();
+        botAI->rpgInfo.stuckAttempts = 0;
+
+        if (IsBotLedNearbyGroupBot())
+        {
+            // Ambient parties must stay together — never teleport away from members.
+            botAI->rpgInfo.ChangeToIdle();
+            return false;
+        }
+
         // No meaningful progress toward dest for `stuckTime`: fall
         // back to teleporting directly so the bot can get on with
         // its RPG objective instead of oscillating indefinitely.
-        botAI->rpgInfo.stuckTs = getMSTime();
-        botAI->rpgInfo.stuckAttempts = 0;
         const AreaTableEntry* entry = sAreaTableStore.LookupEntry(bot->GetZoneId());
         std::string zone_name = PlayerbotAI::GetLocalizedAreaName(entry);
         LOG_DEBUG(
@@ -543,10 +551,12 @@ uint32 NewRpgBaseAction::BestRewardIndex(Quest const* quest)
 
 bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
 {
-    bool isLowLevelQuest =
-        bot->GetLevel() > (bot->GetQuestLevel(quest) + sWorld->getIntConfig(CONFIG_QUEST_LOW_LEVEL_HIDE_DIFF));
+    uint8 level = bot->GetLevel();
+    if (Group* group = bot->GetGroup())
+        if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+            level = PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
 
-    if (isLowLevelQuest)
+    if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
         return false;
 
     if (quest->IsRepeatable())
@@ -678,8 +688,53 @@ bool NewRpgBaseAction::OrganizeQuestLog()
     return true;
 }
 
+bool NewRpgBaseAction::PruneObsoleteQuests()
+{
+    if (!IsBotLedNearbyGroupBot())
+        return false;
+
+    uint8 const progressionLevel =
+        PlayerbotGroupProgression::GetGroupProgressionLevel(bot->GetGroup(), bot);
+    bool dropped = false;
+
+    for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
+    {
+        uint32 questId = bot->GetQuestSlotQuestId(i);
+        if (!questId)
+            continue;
+
+        Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+
+        if (!PlayerbotGroupProgression::IsQuestTrivialForLevel(progressionLevel, quest) &&
+            IsQuestWorthDoing(quest) && IsQuestCapableDoing(quest))
+            continue;
+
+        LOG_DEBUG("playerbots", "[New RPG] {} prune obsolete quest {}", bot->GetName(), questId);
+        WorldPacket packet(CMSG_QUESTLOG_REMOVE_QUEST);
+        packet << (uint8)i;
+        WorldPackets::Quest::QuestLogRemoveQuest removeQuest(std::move(packet));
+        removeQuest.Read();
+        bot->GetSession()->HandleQuestLogRemoveQuest(removeQuest);
+        botAI->lowPriorityQuest.insert(questId);
+        botAI->rpgStatistic.questDropped++;
+        dropped = true;
+
+        if (botAI->rpgInfo.GetStatus() == RPG_DO_QUEST)
+        {
+            auto* dataPtr = std::get_if<NewRpgInfo::DoQuest>(&botAI->rpgInfo.data);
+            if (dataPtr && dataPtr->questId == questId)
+                botAI->rpgInfo.ChangeToIdle();
+        }
+    }
+
+    return dropped;
+}
+
 bool NewRpgBaseAction::SearchQuestGiverAndAcceptOrReward()
 {
+    PruneObsoleteQuests();
     OrganizeQuestLog();
     if (ObjectGuid npcOrGo = ChooseNpcOrGameObjectToInteract(true, 80.0f))
     {
@@ -1144,8 +1199,12 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
                 if (botAI->lowPriorityQuest.find(questId) != botAI->lowPriorityQuest.end())
                     continue;
 
+                Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+                if (!quest || !IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest))
+                    continue;
+
                 std::vector<POIInfo> poiInfo;
-                if (GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true))
+                if (GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true) && FilterQuestPoiForNearbyGroup(poiInfo))
                 {
                     availableQuests.push_back(questId);
                 }
@@ -1236,16 +1295,21 @@ bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
                 if (botAI->lowPriorityQuest.find(questId) != botAI->lowPriorityQuest.end())
                     continue;
 
+                Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+                if (!quest || !IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest))
+                    continue;
+
                 std::vector<POIInfo> poiInfo;
-                if (GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true))
-                {
+                if (GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true) && FilterQuestPoiForNearbyGroup(poiInfo))
                     return true;
-                }
             }
             return false;
         }
         case RPG_TRAVEL_FLIGHT:
         {
+            if (IsBotLedNearbyGroupBot())
+                return false;
+
             uint32 flightMasterEntry = 0;
             WorldPosition flightMasterPos;
             std::vector<uint32> path;
@@ -1266,4 +1330,60 @@ bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
             return false;
     }
     return false;
+}
+
+bool NewRpgBaseAction::IsBotLedNearbyGroupBot() const
+{
+    Group* group = bot->GetGroup();
+    return group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group);
+}
+
+bool NewRpgBaseAction::IsNearbyGroupLeaderBot() const
+{
+    Group* group = bot->GetGroup();
+    return IsBotLedNearbyGroupBot() && group && group->IsLeader(bot->GetGUID());
+}
+
+bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInfo) const
+{
+    if (!IsBotLedNearbyGroupBot() || poiInfo.empty())
+        return !poiInfo.empty();
+
+    Group* group = bot->GetGroup();
+    float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+    float const leadRadius = partyRadius * 2.0f;
+    std::vector<POIInfo> filtered;
+
+    for (POIInfo const& poi : poiInfo)
+    {
+        float dx = poi.pos.x;
+        float dy = poi.pos.y;
+        float dz = std::max(bot->GetMap()->GetHeight(dx, dy, MAX_HEIGHT), bot->GetMap()->GetWaterLevel(dx, dy));
+        if (dz == INVALID_HEIGHT || dz == VMAP_INVALID_HEIGHT_VALUE)
+            continue;
+
+        WorldPosition pos(bot->GetMapId(), dx, dy, dz);
+        if (bot->GetDistance(pos) > leadRadius)
+            continue;
+
+        bool partyCanFollow = true;
+        for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+        {
+            Player* member = gref->GetSource();
+            if (!member || !member->IsAlive() || member == bot)
+                continue;
+
+            if (member->GetMapId() != bot->GetMapId() || member->GetDistance(bot) > partyRadius)
+            {
+                partyCanFollow = false;
+                break;
+            }
+        }
+
+        if (partyCanFollow)
+            filtered.push_back(poi);
+    }
+
+    poiInfo = std::move(filtered);
+    return !poiInfo.empty();
 }

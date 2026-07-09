@@ -48,6 +48,18 @@ struct BattlegroundInfo
 class ChatHandler;
 class PerfMonitorOperation;
 class WorldLocation;
+class Quest;
+
+namespace PlayerbotGroupProgression
+{
+// Gray-quest level gap (matches client / CleanQuestLogAction).
+int32 GetQuestTrivialLevelDiff(uint8 playerLevel);
+bool IsQuestTrivialForLevel(uint8 playerLevel, Quest const* quest);
+// Average level of alive group members; falls back to the bot's level.
+uint8 GetGroupProgressionLevel(Group const* group, Player* fallback);
+// Minimum mob level worth pulling while leveling as a party.
+int32 GetPreferredMinMobLevel(uint8 progressionLevel);
+}
 
 struct CachedEvent
 {

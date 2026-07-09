@@ -49,6 +49,7 @@ protected:
     bool AcceptQuest(Quest const* quest, ObjectGuid guid);
     bool TurnInQuest(Quest const* quest, ObjectGuid guid);
     bool OrganizeQuestLog();
+    bool PruneObsoleteQuests();
 
 protected:
     bool GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete = false);
@@ -57,6 +58,9 @@ protected:
     bool SelectRandomFlightTaxiNode(uint32& flightMasterEntry, WorldPosition& flightMasterPos, std::vector<uint32>& path);
     bool RandomChangeStatus(std::vector<NewRpgStatus> candidateStatus);
     bool CheckRpgStatusAvailable(NewRpgStatus status);
+    bool FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInfo) const;
+    bool IsBotLedNearbyGroupBot() const;
+    bool IsNearbyGroupLeaderBot() const;
 
 protected:
     /* FOR MOVE FAR */

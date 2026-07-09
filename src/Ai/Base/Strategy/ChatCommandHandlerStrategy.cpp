@@ -86,6 +86,8 @@ ChatCommandHandlerStrategy::ChatCommandHandlerStrategy(PlayerbotAI* botAI) : Pas
     supported.push_back("quests");
     supported.push_back("stats");
     supported.push_back("leave");
+    supported.push_back("ready for invite");
+    supported.push_back("drop group");
     supported.push_back("reputation");
     supported.push_back("tell pvp stats");
     supported.push_back("log");

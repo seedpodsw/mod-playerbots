@@ -7,9 +7,11 @@
 
 #include "ChooseRpgTargetAction.h"
 #include "Event.h"
+#include "Group.h"
 #include "LootObjectStack.h"
 #include "NewRpgStrategy.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 #include "RtiTargetValue.h"
 #include "PossibleRpgTargetsValue.h"
 #include "PvpTriggers.h"
@@ -121,6 +123,26 @@ bool AttackAnythingAction::isUseful()
     Unit* target = GetTarget();
     if (!target || !target->IsInWorld())  // Checks if the target is valid and in the world
         return false;
+
+    if (Group* group = bot->GetGroup())
+    {
+        if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->IsLeader(bot->GetGUID()))
+        {
+            float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+            if (bot->GetDistance(target) > partyRadius)
+                return false;
+
+            for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+            {
+                Player* member = gref->GetSource();
+                if (!member || !member->IsAlive() || member == bot)
+                    continue;
+
+                if (member->GetMapId() != bot->GetMapId() || member->GetDistance(target) > partyRadius)
+                    return false;
+            }
+        }
+    }
 
     std::string const name = std::string(target->GetName());
     if (!name.empty() &&

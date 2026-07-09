@@ -9,6 +9,7 @@
 #include "Event.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 
 bool DropQuestAction::Execute(Event event)
 {
@@ -97,18 +98,13 @@ bool CleanQuestLogAction::Execute(Event event)
         if (questLevel == -1) // For scaling quests, default to bot level
             questLevel = botLevel;
 
-        // Set the level difference for when a quest becomes trivial
-        // This was determined by using the Lua code the client uses
-        int32 trivialLevel = 5;
-        if (botLevel >= 40)
-            trivialLevel = 8;
-        else if (botLevel >= 30)
-            trivialLevel = 7;
-        else if (botLevel >= 20)
-            trivialLevel = 6;
+        uint8 levelRef = botLevel;
+        if (Group* group = bot->GetGroup())
+            if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+                levelRef = PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
 
         // Check if the quest is trivial (grey) for the bot
-        if ((botLevel - questLevel) > trivialLevel)
+        if (PlayerbotGroupProgression::IsQuestTrivialForLevel(levelRef, quest))
         {
             // Output only if "debug rpg" strategy is enabled
             if (botAI->HasStrategy("debug rpg", BotState::BOT_STATE_COMBAT))

@@ -8,6 +8,7 @@
 #include "LFGMgr.h"
 #include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 
 PlayerbotSecurity::PlayerbotSecurity(Player* const bot) : bot(bot)
 {
@@ -131,6 +132,16 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
                 *reason = PLAYERBOT_DENY_INVITE;
 
             return PLAYERBOT_SECURITY_INVITE;
+        }
+
+        // Real players may release bots from ambient nearby parties (drop group / ready for invite).
+        PlayerbotAI* fromBotAI = GET_PLAYERBOT_AI(from);
+        if ((!fromBotAI || fromBotAI->IsRealPlayer()) && sRandomPlayerbotMgr.IsBotLedNearbyGroup(botGroup))
+        {
+            if (reason)
+                *reason = PLAYERBOT_DENY_NONE;
+
+            return PLAYERBOT_SECURITY_ALLOW_ALL;
         }
 
         if (!ignoreGroup && botGroup->IsFull())

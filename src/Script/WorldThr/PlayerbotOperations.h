@@ -193,8 +193,7 @@ public:
 
         Player* inviter = ObjectAccessor::FindPlayer(invite->GetLeaderGUID());
 
-        // Decline (also clears stale invites when the bot got grouped in the meantime)
-        if (!m_accept || bot->GetGroup() || !inviter)
+        if (!m_accept || !inviter)
         {
             if (inviter)
             {
@@ -204,6 +203,25 @@ public:
             }
             bot->UninviteFromGroup();
             return true;
+        }
+
+        PlayerbotAI* inviterAI = GET_PLAYERBOT_AI(inviter);
+        bool realPlayerInviter = !inviterAI || inviterAI->IsRealPlayer();
+
+        if (bot->GetGroup())
+        {
+            if (!realPlayerInviter)
+            {
+                WorldPacket data(SMSG_GROUP_DECLINE, 10);
+                data << bot->GetName();
+                inviter->SendDirectMessage(&data);
+                bot->UninviteFromGroup();
+                return true;
+            }
+
+            // Real-player invites supersede ambient nearby groups.
+            if (Group* group = bot->GetGroup())
+                Player::RemoveFromGroup(group, bot->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
         }
 
         if (bot->isAFK())
@@ -250,6 +268,75 @@ public:
 private:
     ObjectGuid m_botGuid;
     bool m_accept;
+};
+
+// Leave an ambient nearby group on the world thread so a real player can invite the bot.
+class ReleaseFromAmbientGroupOperation : public PlayerbotOperation
+{
+public:
+    ReleaseFromAmbientGroupOperation(ObjectGuid botGuid, ObjectGuid playerGuid, bool sayReady)
+        : m_botGuid(botGuid), m_playerGuid(playerGuid), m_sayReady(sayReady)
+    {
+    }
+
+    bool Execute() override
+    {
+        Player* bot = ObjectAccessor::FindPlayer(m_botGuid);
+        Player* player = ObjectAccessor::FindPlayer(m_playerGuid);
+        if (!bot || !player)
+            return false;
+
+        bool wasInGroup = bot->GetGroup() != nullptr;
+
+        if (Group* group = bot->GetGroup())
+            Player::RemoveFromGroup(group, bot->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
+
+        if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
+        {
+            if (sRandomPlayerbotMgr.IsRandomBot(bot))
+            {
+                botAI->SetMaster(nullptr);
+                botAI->ResetStrategies();
+            }
+        }
+
+        if (m_sayReady)
+        {
+            bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                             "ready_for_invite", "Ready for invite!", {}),
+                         LANG_UNIVERSAL, player);
+        }
+        else if (wasInGroup)
+        {
+            bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                             "drop_group_done", "I left the group. Invite me when you're ready!", {}),
+                         LANG_UNIVERSAL, player);
+        }
+        else
+        {
+            bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                             "drop_group_not_grouped", "I'm not in a group. Invite me anytime!", {}),
+                         LANG_UNIVERSAL, player);
+        }
+
+        return true;
+    }
+
+    ObjectGuid GetBotGuid() const override { return m_botGuid; }
+
+    uint32 GetPriority() const override { return 50; }
+
+    std::string GetName() const override { return "ReleaseFromAmbientGroup"; }
+
+    bool IsValid() const override
+    {
+        return ObjectAccessor::FindPlayer(m_botGuid) && ObjectAccessor::FindPlayer(m_playerGuid);
+    }
+
+private:
+    ObjectGuid m_botGuid;
+    ObjectGuid m_playerGuid;
+    bool m_sayReady;
 };
 
 // Remove member from group

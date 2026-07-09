@@ -931,6 +931,8 @@ bool PlayerbotAI::IsAllowedCommand(std::string const text)
         unsecuredCommands.insert("sendmail");
         unsecuredCommands.insert("invite");
         unsecuredCommands.insert("leave");
+        unsecuredCommands.insert("ready for invite");
+        unsecuredCommands.insert("drop group");
         unsecuredCommands.insert("lfg");
         unsecuredCommands.insert("pvp stats");
         unsecuredCommands.insert("rpg status");
@@ -949,7 +951,19 @@ bool PlayerbotAI::IsAllowedCommand(std::string const text)
 
 void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fromPlayer)
 {
-    if (!GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, type != CHAT_MSG_WHISPER, fromPlayer))
+    bool const silent = type != CHAT_MSG_WHISPER;
+
+    // Parse command name early so ambient group-release whispers bypass the grouped-bot invite gate.
+    std::string commandProbe = text;
+    if (!sPlayerbotAIConfig.commandPrefix.empty() &&
+        commandProbe.find(sPlayerbotAIConfig.commandPrefix) == 0)
+        commandProbe = commandProbe.substr(sPlayerbotAIConfig.commandPrefix.size());
+
+    commandProbe = chatFilter.Filter(trim(commandProbe));
+    bool const groupReleaseCommand = commandProbe == "leave" || commandProbe == "drop group" ||
+                                     commandProbe == "ready for invite";
+
+    if (!GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, silent, fromPlayer, groupReleaseCommand))
         return;
 
     if (type == CHAT_MSG_ADDON)

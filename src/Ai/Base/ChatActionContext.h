@@ -101,6 +101,8 @@ public:
         creators["stats"] = &ChatActionContext::stats;
         creators["quests"] = &ChatActionContext::quests;
         creators["leave"] = &ChatActionContext::leave;
+        creators["ready for invite"] = &ChatActionContext::ready_for_invite;
+        creators["drop group"] = &ChatActionContext::drop_group;
         creators["reputation"] = &ChatActionContext::reputation;
         creators["tell pvp stats"] = &ChatActionContext::tell_pvp_stats;
         creators["log"] = &ChatActionContext::log;
@@ -293,6 +295,8 @@ private:
     static Action* stats(PlayerbotAI* botAI) { return new StatsAction(botAI); }
     static Action* quests(PlayerbotAI* botAI) { return new ListQuestsAction(botAI); }
     static Action* leave(PlayerbotAI* botAI) { return new LeaveGroupAction(botAI); }
+    static Action* ready_for_invite(PlayerbotAI* botAI) { return new ReadyForInviteAction(botAI); }
+    static Action* drop_group(PlayerbotAI* botAI) { return new DropGroupAction(botAI); }
     static Action* reputation(PlayerbotAI* botAI) { return new TellReputationAction(botAI); }
     static Action* tell_pvp_stats(PlayerbotAI* botAI) { return new TellPvpStatsAction(botAI); }
     static Action* log(PlayerbotAI* botAI) { return new LogLevelAction(botAI); }

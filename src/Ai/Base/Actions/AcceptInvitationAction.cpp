@@ -12,7 +12,20 @@
 #include "PlayerbotSecurity.h"
 #include "PlayerbotWorldThreadProcessor.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 #include "WorldPacket.h"
+
+namespace
+{
+bool IsRealPlayerInviter(Player* inviter)
+{
+    if (!inviter)
+        return false;
+
+    PlayerbotAI* inviterAI = GET_PLAYERBOT_AI(inviter);
+    return !inviterAI || inviterAI->IsRealPlayer();
+}
+}  // namespace
 
 bool AcceptInvitationAction::Execute(Event /*event*/)
 {
@@ -27,7 +40,7 @@ bool AcceptInvitationAction::Execute(Event /*event*/)
     bool accept = true;
     if (!inviter)
         accept = false;
-    else if (bot->GetGroup())  // Stale invite that raced with another group join.
+    else if (bot->GetGroup() && !IsRealPlayerInviter(inviter))
         accept = false;
     else if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, inviter))
         accept = false;

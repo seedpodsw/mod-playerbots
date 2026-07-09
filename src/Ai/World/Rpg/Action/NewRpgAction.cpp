@@ -62,6 +62,8 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
     switch (status)
     {
         case RPG_IDLE:
+            if (IsNearbyGroupLeaderBot())
+                PruneObsoleteQuests();
             return RandomChangeStatus({RPG_GO_CAMP, RPG_GO_GRIND, RPG_WANDER_RANDOM, RPG_WANDER_NPC, RPG_DO_QUEST,
                                        RPG_TRAVEL_FLIGHT, RPG_REST, RPG_OUTDOOR_PVP});
 
@@ -253,12 +255,26 @@ bool NewRpgDoQuestAction::Execute(Event /*event*/)
     if (SearchQuestGiverAndAcceptOrReward())
         return true;
 
+    if (PruneObsoleteQuests())
+    {
+        botAI->rpgInfo.ChangeToIdle();
+        return true;
+    }
+
     NewRpgInfo& info = botAI->rpgInfo;
     auto* dataPtr = std::get_if<NewRpgInfo::DoQuest>(&info.data);
     if (!dataPtr)
         return false;
     auto& data = *dataPtr;
     uint32 questId = data.questId;
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    if (!quest || !IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest))
+    {
+        botAI->lowPriorityQuest.insert(questId);
+        info.ChangeToIdle();
+        return true;
+    }
+
     uint8 questStatus = bot->GetQuestStatus(questId);
     switch (questStatus)
     {
@@ -306,7 +322,7 @@ bool NewRpgDoQuestAction::DoIncompleteQuest(NewRpgInfo::DoQuest& data)
     if (data.pos == WorldPosition())
     {
         std::vector<POIInfo> poiInfo;
-        if (!GetQuestPOIPosAndObjectiveIdx(questId, poiInfo))
+        if (!GetQuestPOIPosAndObjectiveIdx(questId, poiInfo) || !FilterQuestPoiForNearbyGroup(poiInfo))
         {
             // can't find a poi pos to go, stop doing quest for now
             botAI->rpgInfo.ChangeToIdle();
@@ -403,7 +419,7 @@ bool NewRpgDoQuestAction::DoCompletedQuest(NewRpgInfo::DoQuest& data)
         BroadcastHelper::BroadcastQuestUpdateComplete(botAI, bot, quest);
         botAI->rpgStatistic.questCompleted++;
         std::vector<POIInfo> poiInfo;
-        if (!GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true))
+        if (!GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true) || !FilterQuestPoiForNearbyGroup(poiInfo))
         {
             // can't find a poi pos to reward, stop doing quest for now
             botAI->rpgInfo.ChangeToIdle();

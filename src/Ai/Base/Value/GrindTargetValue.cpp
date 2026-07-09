@@ -7,6 +7,7 @@
 
 #include "NewRpgInfo.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 #include "ReputationMgr.h"
 #include "ServerFacade.h"
 #include "SharedDefines.h"
@@ -105,6 +106,49 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
             continue;
         }
 
+        if (group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->GetLeaderGUID() == bot->GetGUID())
+        {
+            float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+            float const distFromLeader = bot->GetDistance(unit);
+            uint8 const progressionLevel =
+                PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
+            int32 const minMobLevel = PlayerbotGroupProgression::GetPreferredMinMobLevel(progressionLevel);
+            int32 const mobLevel = unit->GetLevel();
+
+            if (distFromLeader > partyRadius)
+                continue;
+
+            bool partyInRange = true;
+            for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+            {
+                Player* member = gref->GetSource();
+                if (!member || !member->IsAlive() || member == bot)
+                    continue;
+
+                if (member->GetMapId() != bot->GetMapId() || member->GetDistance(unit) > partyRadius)
+                {
+                    partyInRange = false;
+                    break;
+                }
+            }
+
+            if (!partyInRange)
+                continue;
+
+            if (mobLevel < minMobLevel && !needForQuest(unit))
+                continue;
+
+            // Prefer higher-level mobs in the party bubble; break ties by distance.
+            float const score = float(mobLevel) * 100.0f - distFromLeader;
+            if (!result || score > distance)
+            {
+                distance = score;
+                result = unit;
+            }
+
+            continue;
+        }
+
         bool inactiveGrindStatus = botAI->rpgInfo.GetStatus() != RPG_WANDER_RANDOM && botAI->rpgInfo.GetStatus() != RPG_IDLE;
 
         float aggroRange = 30.0f;
@@ -153,11 +197,19 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
 
 bool GrindTargetValue::needForQuest(Unit* target)
 {
+    uint8 questLevelRef = bot->GetLevel();
+    if (Group* group = bot->GetGroup())
+        if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+            questLevelRef = PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
+
     QuestStatusMap& questMap = bot->getQuestStatusMap();
     for (auto& quest : questMap)
     {
         Quest const* questTemplate = sObjectMgr->GetQuestTemplate(quest.first);
         if (!questTemplate)
+            continue;
+
+        if (PlayerbotGroupProgression::IsQuestTrivialForLevel(questLevelRef, questTemplate))
             continue;
 
         uint32 questId = questTemplate->GetQuestId();

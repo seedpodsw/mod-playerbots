@@ -46,4 +46,23 @@ public:
     bool isUseful() override;
 };
 
+// Real players release a random bot from its ambient nearby group so they can invite it.
+class ReadyForInviteAction : public Action
+{
+public:
+    ReadyForInviteAction(PlayerbotAI* botAI, std::string const name = "ready for invite")
+        : Action(botAI, name) {}
+
+    bool Execute(Event event) override;
+    bool isUseful() override;
+};
+
+class DropGroupAction : public ReadyForInviteAction
+{
+public:
+    DropGroupAction(PlayerbotAI* botAI) : ReadyForInviteAction(botAI, "drop group") {}
+
+    bool Execute(Event event) override;
+};
+
 #endif

@@ -7,15 +7,43 @@
 
 #include "Event.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotOperations.h"
 #include "PlayerbotTextMgr.h"
+#include "PlayerbotWorldThreadProcessor.h"
 #include "Playerbots.h"
 #include "RandomPlayerbotMgr.h"
+
+#include <memory>
+
+namespace
+{
+bool IsRealPlayerCommander(Player* player)
+{
+    if (!player)
+        return false;
+
+    PlayerbotAI* playerAI = GET_PLAYERBOT_AI(player);
+    return !playerAI || playerAI->IsRealPlayer();
+}
+
+bool QueueReleaseFromAmbientGroup(Player* bot, Player* player, bool sayReady)
+{
+    auto op = std::make_unique<ReleaseFromAmbientGroupOperation>(bot->GetGUID(), player->GetGUID(), sayReady);
+    return PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(op));
+}
+}  // namespace
 
 bool LeaveGroupAction::Execute(Event event)
 {
     Player* player = event.getOwner();
     if (player == botAI->GetMaster())
         return Leave();
+
+    // Real players can pull random bots out of ambient nearby groups (not player alts).
+    if (player && sRandomPlayerbotMgr.IsRandomBot(bot) && bot->GetGroup() &&
+        sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()) && IsRealPlayerCommander(player) &&
+        botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, player))
+        return QueueReleaseFromAmbientGroup(bot, player, false);
 
     return false;
 }
@@ -165,4 +193,42 @@ bool LeaveFarAwayAction::isUseful()
     }
 
     return false;
+}
+
+bool ReadyForInviteAction::Execute(Event event)
+{
+    Player* player = event.getOwner();
+    if (!player || !IsRealPlayerCommander(player))
+        return false;
+
+    if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, player))
+        return false;
+
+    return QueueReleaseFromAmbientGroup(bot, player, true);
+}
+
+bool ReadyForInviteAction::isUseful()
+{
+    if (!sRandomPlayerbotMgr.IsRandomBot(bot))
+        return false;
+
+    if (bot->InBattleground() || bot->InBattlegroundQueue())
+        return false;
+
+    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+        return true;
+
+    return sPlayerbotAIConfig.randomBotGroupNearby;
+}
+
+bool DropGroupAction::Execute(Event event)
+{
+    Player* player = event.getOwner();
+    if (!player || !IsRealPlayerCommander(player))
+        return false;
+
+    if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, player))
+        return false;
+
+    return QueueReleaseFromAmbientGroup(bot, player, false);
 }

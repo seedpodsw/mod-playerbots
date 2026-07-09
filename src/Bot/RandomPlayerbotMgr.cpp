@@ -2207,6 +2207,61 @@ bool RandomPlayerbotMgr::IsBotLedNearbyGroup(Group* group)
     return true;
 }
 
+namespace PlayerbotGroupProgression
+{
+int32 GetQuestTrivialLevelDiff(uint8 playerLevel)
+{
+    if (playerLevel >= 40)
+        return 8;
+    if (playerLevel >= 30)
+        return 7;
+    if (playerLevel >= 20)
+        return 6;
+    return 5;
+}
+
+bool IsQuestTrivialForLevel(uint8 playerLevel, Quest const* quest)
+{
+    if (!quest)
+        return true;
+
+    int32 questLevel = quest->GetQuestLevel();
+    if (questLevel < 0)
+        questLevel = playerLevel;
+
+    return (int32(playerLevel) - questLevel) > GetQuestTrivialLevelDiff(playerLevel);
+}
+
+uint8 GetGroupProgressionLevel(Group const* group, Player* fallback)
+{
+    if (!group)
+        return fallback ? fallback->GetLevel() : 1;
+
+    uint32 sum = 0;
+    uint32 count = 0;
+    for (GroupReference const* itr = group->GetFirstMember(); itr; itr = itr->next())
+    {
+        Player* member = itr->GetSource();
+        if (!member || !member->IsAlive())
+            continue;
+
+        sum += member->GetLevel();
+        ++count;
+    }
+
+    if (!count)
+        return fallback ? fallback->GetLevel() : 1;
+
+    return uint8(sum / count);
+}
+
+int32 GetPreferredMinMobLevel(uint8 progressionLevel)
+{
+    int32 const slack = progressionLevel >= 10 ? 4 : 2;
+    return std::max(1, int32(progressionLevel) - slack);
+}
+}  // namespace PlayerbotGroupProgression
+
 bool RandomPlayerbotMgr::IsRandomBot(Player* bot)
 {
     if (bot && GET_PLAYERBOT_AI(bot))

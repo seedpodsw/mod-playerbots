@@ -13,6 +13,8 @@
 #include "PlayerbotWorldThreadProcessor.h"
 #include "ServerFacade.h"
 
+#include <memory>
+
 bool InviteToGroupAction::Invite(Player* inviter, Player* player)
 {
     if (!player)
@@ -280,6 +282,15 @@ bool JoinGroupAction::Execute(Event event)
     {
         if (botAI->HasRealPlayerMaster())
             return false;
+
+        PlayerbotAI* requesterAI = master ? GET_PLAYERBOT_AI(master) : nullptr;
+        if (master && (!requesterAI || requesterAI->IsRealPlayer()) && sRandomPlayerbotMgr.IsRandomBot(bot) &&
+            sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+        {
+            auto op = std::make_unique<ReleaseFromAmbientGroupOperation>(bot->GetGUID(), master->GetGUID(), true);
+            PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(op));
+            return false;
+        }
 
         if (!botAI->DoSpecificAction("leave", event, true))
             return false;

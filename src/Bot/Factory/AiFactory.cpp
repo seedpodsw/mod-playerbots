@@ -9,6 +9,7 @@
 #include "DKAiObjectContext.h"
 #include "DruidAiObjectContext.h"
 #include "Engine.h"
+#include "Formations.h"
 #include "Group.h"
 #include "HunterAiObjectContext.h"
 #include "Item.h"
@@ -25,6 +26,27 @@
 #include "SpellMgr.h"
 #include "WarlockAiObjectContext.h"
 #include "WarriorAiObjectContext.h"
+
+namespace
+{
+void ApplyNearbyGroupMovementTuning(PlayerbotAI* facade, Engine* nonCombatEngine, bool isNearbyGroupLeader,
+                                    bool isNearbyGroupMember)
+{
+    if (auto* formation =
+            dynamic_cast<FormationValue*>(facade->GetAiObjectContext()->GetValue<Formation*>("formation")))
+        formation->Load("near");
+
+    nonCombatEngine->removeStrategy("mount", false);
+    nonCombatEngine->removeStrategy("duel", false);
+    nonCombatEngine->removeStrategy("emote", false);
+
+    if (isNearbyGroupLeader)
+        nonCombatEngine->removeStrategy("follow", false);
+
+    if (isNearbyGroupMember)
+        nonCombatEngine->removeStrategy("start duel", false);
+}
+}  // namespace
 
 namespace
 {
@@ -622,12 +644,20 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             if (sPlayerbotAIConfig.randomBotGroupNearby)
                 nonCombatEngine->addStrategy("group", false);
 
-            if (!isNearbyGroupLeader)
-                nonCombatEngine->addStrategy("grind", false);
+            // Leaders drive shared quest progression (new rpg/rpg) and pull mobs via grind;
+            // members follow and assist in combat (dps assist).
+            nonCombatEngine->addStrategy("grind", false);
 
-            if (!isNearbyGroupLeader && sPlayerbotAIConfig.enableNewRpgStrategy)
+            if (isNearbyGroupLeader)
+            {
+                if (sPlayerbotAIConfig.enableNewRpgStrategy)
+                    nonCombatEngine->addStrategy("new rpg", false);
+                else if (sPlayerbotAIConfig.autoDoQuests)
+                    nonCombatEngine->addStrategy("rpg", false);
+            }
+            else if (sPlayerbotAIConfig.enableNewRpgStrategy)
                 nonCombatEngine->addStrategy("new rpg", false);
-            else if (!isNearbyGroupLeader && sPlayerbotAIConfig.autoDoQuests)
+            else if (sPlayerbotAIConfig.autoDoQuests)
             {
                 // nonCombatEngine->addStrategy("travel");
                 nonCombatEngine->addStrategy("rpg", false);
@@ -642,6 +672,9 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             //     nonCombatEngine->addStrategy("maintenance");
 
             nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
+
+            if (inNearbyGroup)
+                ApplyNearbyGroupMovementTuning(facade, nonCombatEngine, isNearbyGroupLeader, false);
         }
         else
         {
@@ -679,6 +712,10 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                         {
                             nonCombatEngine->addStrategy("follow", false);
                             nonCombatEngine->addStrategy("group", false);
+                            // Stay with the party — don't peel off to gather or quest solo.
+                            nonCombatEngine->removeStrategy("gather", false);
+                            nonCombatEngine->removeStrategy("quest", false);
+                            ApplyNearbyGroupMovementTuning(facade, nonCombatEngine, false, true);
                         }
                         else
                             nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
