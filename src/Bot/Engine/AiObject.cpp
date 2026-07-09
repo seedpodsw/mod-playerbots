@@ -33,4 +33,17 @@ Player* AiObject::GetValidBot() const
     return activeBot;
 }
 
+Player* AiObject::GetValidMaster() const
+{
+    if (!botAI)
+        return nullptr;
+
+    Player* masterPlayer = botAI->GetMaster();
+    if (!masterPlayer || !masterPlayer->GetSession() || !masterPlayer->IsInWorld() ||
+        masterPlayer->IsDuringRemoveFromWorld() || masterPlayer->IsBeingTeleported())
+        return nullptr;
+
+    return masterPlayer;
+}
+
 Player* AiObject::GetMaster() { return botAI->GetMaster(); }

@@ -939,13 +939,7 @@ void MovementAction::UpdateMovementState()
     if (!GetValidBot())
         return;
 
-    Player* master = nullptr;
-    if (botAI)
-    {
-        Player* masterCandidate = botAI->GetMaster();
-        if (botAI->IsValidPlayer(masterCandidate))
-            master = masterCandidate;
-    }
+    Player* master = GetValidMaster();
 
     const bool isCurrentlyRestricted =  // see if the bot is currently slowed, rooted, or otherwise unable to move
         bot->HasUnitState(UNIT_STATE_LOST_CONTROL) || bot->IsRooted() || bot->isFrozen() || bot->IsPolymorphed();
