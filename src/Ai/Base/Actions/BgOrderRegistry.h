@@ -6,8 +6,9 @@
 #ifndef PLAYERBOTS_BGORDERREGISTRY_H
 #define PLAYERBOTS_BGORDERREGISTRY_H
 
-#include "SharedDefines.h"
 #include "Position.h"
+#include "PositionValue.h"
+#include "SharedDefines.h"
 
 class Battleground;
 class GameObject;
