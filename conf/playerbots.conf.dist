@@ -1287,7 +1287,11 @@ AiPlayerbot.AutoTeleportForLevel = 1
 AiPlayerbot.RandomBotJoinBG = 1
 
 # Enable auto-joining of battlegrounds - have bots start battlegrounds and arenas on their own
-AiPlayerbot.RandomBotAutoJoinBG = 0
+AiPlayerbot.RandomBotAutoJoinBG = 1
+
+# Minimum fraction of allowed randombots that must be online before auto-join opens queues.
+# Lower this when EnablePeriodicOnlineOffline rotates bots off (default: 0.5 = 50%).
+AiPlayerbot.RandomBotAutoJoinMinOnlineRatio = 0.5
 
 # Required Configuration for RandomBotAutoJoinBG
 #
@@ -1304,6 +1308,7 @@ AiPlayerbot.RandomBotAutoJoinBG = 0
 #   - Eye of the Storm (EY): 0=61-69, 1=70-79, 2=80                                                 (Default: 2)
 #   - Isle of Conquest (IC): 0=71-79, 1=80                                                          (Default: 1)
 # - Multiple BG brackets can be specified as a comma-separated list (e.g., "0,2,5"). Not applicable for Rated Arena.
+#   Brackets are also auto-detected from online bot levels when enough eligible bots exist at that bracket.
 #   - Rated Arena:           0=10-14, 1=15-19, 2=20-24, ..., 13=75-79, 14=80-84                     (Default: 14)
 #
 # Counts:
@@ -1320,8 +1325,8 @@ AiPlayerbot.RandomBotAutoJoinBG = 0
 # AiPlayerbot.RandomBotAutoJoinAVBrackets = 0,1,2,3
 # AiPlayerbot.RandomBotAutoJoinEYBrackets = 0,1,2
 # AiPlayerbot.RandomBotAutoJoinICBrackets = 0,1
-AiPlayerbot.RandomBotAutoJoinWSBrackets = 7
-AiPlayerbot.RandomBotAutoJoinABBrackets = 6
+AiPlayerbot.RandomBotAutoJoinWSBrackets = 0,1,2,3,4,5,6,7
+AiPlayerbot.RandomBotAutoJoinABBrackets = 0,1,2,3,4,5,6
 AiPlayerbot.RandomBotAutoJoinAVBrackets = 3
 AiPlayerbot.RandomBotAutoJoinEYBrackets = 2
 AiPlayerbot.RandomBotAutoJoinICBrackets = 1

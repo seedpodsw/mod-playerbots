@@ -895,6 +895,131 @@ std::vector<uint32> parseBrackets(const std::string& str)
     return brackets;
 }
 
+namespace
+{
+struct BgAutoJoinTarget
+{
+    BattlegroundQueueTypeId queueType;
+    uint32 targetInstanceCount;
+};
+
+bool IsBotEligibleForBgQueue(Player* bot, RandomPlayerbotMgr const& mgr)
+{
+    if (!bot || !bot->IsInWorld() || !mgr.IsRandomBot(bot))
+        return false;
+
+    if (bot->InBattleground())
+        return false;
+
+    if (bot->InBattlegroundQueue())
+        return false;
+
+    if ((time(nullptr) - bot->GetInGameTime()) < 120)
+        return false;
+
+    if (bot->GetLevel() < 10)
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || botAI->HasActivePlayerMaster())
+        return false;
+
+    if (bot->GetGroup() && !bot->GetGroup()->IsLeader(bot->GetGUID()))
+        return false;
+
+    if (bot->IsInCombat())
+        return false;
+
+    if (bot->IsDeserter())
+        return false;
+
+    if (!bot->HasFreeBattlegroundQueueId())
+        return false;
+
+    return true;
+}
+
+void ActivateBracketsForEligibleBots(std::map<uint32, std::map<uint32, BattlegroundInfo>>& battlegroundData,
+                                     PlayerBotMap const& playerBots)
+{
+    BgAutoJoinTarget const targets[] = {
+        {BATTLEGROUND_QUEUE_WS, sPlayerbotAIConfig.randomBotAutoJoinBGWSCount},
+        {BATTLEGROUND_QUEUE_AB, sPlayerbotAIConfig.randomBotAutoJoinBGABCount},
+        {BATTLEGROUND_QUEUE_AV, sPlayerbotAIConfig.randomBotAutoJoinBGAVCount},
+        {BATTLEGROUND_QUEUE_EY, sPlayerbotAIConfig.randomBotAutoJoinBGEYCount},
+        {BATTLEGROUND_QUEUE_IC, sPlayerbotAIConfig.randomBotAutoJoinBGICCount},
+    };
+
+    std::map<uint32, std::map<uint32, uint32>> eligibleBotCounts;
+
+    for (auto const& [guid, bot] : playerBots)
+    {
+        if (!IsBotEligibleForBgQueue(bot, sRandomPlayerbotMgr))
+            continue;
+
+        for (BgAutoJoinTarget const& target : targets)
+        {
+            if (!target.targetInstanceCount)
+                continue;
+
+            BattlegroundTypeId bgTypeId = BattlegroundMgr::BGTemplateId(target.queueType);
+            if (!bot->GetBGAccessByLevel(bgTypeId))
+                continue;
+
+            Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
+            if (!bg)
+                continue;
+
+            PvPDifficultyEntry const* pvpDiff = GetBattlegroundBracketByLevel(bg->GetMapId(), bot->GetLevel());
+            if (!pvpDiff)
+                continue;
+
+            BattlegroundBracketId bracketId = pvpDiff->GetBracketId();
+            uint32 queueTypeKey = static_cast<uint32>(target.queueType);
+
+            ++eligibleBotCounts[queueTypeKey][bracketId];
+            battlegroundData[queueTypeKey][bracketId].minLevel = pvpDiff->minLevel;
+            battlegroundData[queueTypeKey][bracketId].maxLevel = pvpDiff->maxLevel;
+        }
+    }
+
+    for (BgAutoJoinTarget const& target : targets)
+    {
+        if (!target.targetInstanceCount)
+            continue;
+
+        BattlegroundTypeId bgTypeId = BattlegroundMgr::BGTemplateId(target.queueType);
+        Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
+        if (!bg)
+            continue;
+
+        uint32 teamSize = bg->GetMaxPlayersPerTeam();
+        uint32 queueTypeKey = static_cast<uint32>(target.queueType);
+
+        for (auto const& bracketPair : eligibleBotCounts[queueTypeKey])
+        {
+            uint32 bracketId = bracketPair.first;
+            uint32 eligibleCount = bracketPair.second;
+
+            if (eligibleCount < teamSize)
+                continue;
+
+            BattlegroundInfo& info = battlegroundData[queueTypeKey][bracketId];
+            if (info.activeBgQueue)
+                continue;
+
+            if (info.bgInstanceCount >= target.targetInstanceCount)
+                continue;
+
+            if (info.bgInstances.size() >= target.targetInstanceCount)
+                continue;
+
+            info.activeBgQueue = 1;
+        }
+    }
+}
+}  // namespace
+
 void RandomPlayerbotMgr::CheckBgQueue()
 {
     if (!BgCheckTimer)
@@ -1117,8 +1242,13 @@ void RandomPlayerbotMgr::CheckBgQueue()
         }
     }
 
-    // If enabled, wait for all bots to have logged in before queueing for Arena's / BG's
-    if (sPlayerbotAIConfig.randomBotAutoJoinBG && playerBots.size() >= GetMaxAllowedBotCount())
+    // If enabled, wait until enough bots are online before queueing for arenas / BGs
+    uint32 const maxAllowed = GetMaxAllowedBotCount();
+    float const minOnlineRatio = sPlayerbotAIConfig.randomBotAutoJoinMinOnlineRatio;
+    bool const enoughBotsOnline = !maxAllowed ||
+        (static_cast<float>(playerBots.size()) / static_cast<float>(maxAllowed)) >= minOnlineRatio;
+
+    if (sPlayerbotAIConfig.randomBotAutoJoinBG && enoughBotsOnline)
     {
         uint32 randomBotAutoJoinArenaBracket = sPlayerbotAIConfig.randomBotAutoJoinArenaBracket;
         uint32 randomBotAutoJoinBGRatedArena2v2Count = sPlayerbotAIConfig.randomBotAutoJoinBGRatedArena2v2Count;
@@ -1172,6 +1302,8 @@ void RandomPlayerbotMgr::CheckBgQueue()
         updateBGInstanceCount(BATTLEGROUND_QUEUE_AV, avBrackets, randomBotAutoJoinBGAVCount);
         updateBGInstanceCount(BATTLEGROUND_QUEUE_AB, abBrackets, randomBotAutoJoinBGABCount);
         updateBGInstanceCount(BATTLEGROUND_QUEUE_WS, wsBrackets, randomBotAutoJoinBGWSCount);
+
+        ActivateBracketsForEligibleBots(BattlegroundData, playerBots);
     }
 
     LogBattlegroundInfo();

@@ -666,7 +666,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             else
                 nonCombatEngine->addStrategy("move random", false);
 
-            if (sPlayerbotAIConfig.randomBotJoinBG && !isNearbyGroupLeader)
+            if (sPlayerbotAIConfig.randomBotJoinBG)
                 nonCombatEngine->addStrategy("bg", false);
 
             // if (!master || GET_PLAYERBOT_AI(master))

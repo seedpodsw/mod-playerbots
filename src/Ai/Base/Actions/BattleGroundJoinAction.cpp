@@ -14,6 +14,67 @@
 #include "Playerbots.h"
 #include "PositionValue.h"
 
+namespace
+{
+uint32 GetBgJoinWeight(BattlegroundQueueTypeId queueTypeId, uint8 level)
+{
+    if (BattlegroundMgr::BGArenaType(queueTypeId))
+        return 1;
+
+    switch (BattlegroundMgr::BGTemplateId(queueTypeId))
+    {
+        case BATTLEGROUND_WS:
+            return 10;
+        case BATTLEGROUND_AB:
+            return level >= 20 ? 7 : 0;
+        case BATTLEGROUND_AV:
+            return level >= 51 ? 5 : 0;
+        case BATTLEGROUND_EY:
+            return level >= 61 ? 4 : 0;
+        case BATTLEGROUND_IC:
+            return level >= 71 ? 3 : 0;
+        default:
+            return 1;
+    }
+}
+
+uint32 PickWeightedBgQueue(std::vector<uint32> const& bgList, uint8 level)
+{
+    if (bgList.empty())
+        return 0;
+
+    if (bgList.size() == 1)
+        return bgList[0];
+
+    std::vector<std::pair<uint32, uint32>> weighted;
+    uint32 totalWeight = 0;
+
+    for (uint32 queueTypeId : bgList)
+    {
+        uint32 weight = GetBgJoinWeight(BattlegroundQueueTypeId(queueTypeId), level);
+        if (!weight)
+            continue;
+
+        weighted.emplace_back(queueTypeId, weight);
+        totalWeight += weight;
+    }
+
+    if (weighted.empty())
+        return bgList[urand(0, bgList.size() - 1)];
+
+    uint32 roll = urand(0, totalWeight - 1);
+    for (auto const& entry : weighted)
+    {
+        if (roll < entry.second)
+            return entry.first;
+
+        roll -= entry.second;
+    }
+
+    return weighted.back().first;
+}
+}  // namespace
+
 bool BGJoinAction::Execute(Event /*event*/)
 {
     // BG events supersede the ambient nearby group: leave it now (queued to the world
@@ -31,7 +92,8 @@ bool BGJoinAction::Execute(Event /*event*/)
         if (bgList.empty())
             return false;
 
-        BattlegroundQueueTypeId queueTypeId = (BattlegroundQueueTypeId)bgList[urand(0, bgList.size() - 1)];
+        BattlegroundQueueTypeId queueTypeId =
+            (BattlegroundQueueTypeId)PickWeightedBgQueue(bgList, bot->GetLevel());
         BattlegroundTypeId bgTypeId = BattlegroundMgr::BGTemplateId(queueTypeId);
         bool isRated = false;
 

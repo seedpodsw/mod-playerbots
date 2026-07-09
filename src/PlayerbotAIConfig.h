@@ -245,6 +245,7 @@ public:
 
     bool randomBotJoinBG;
     bool randomBotAutoJoinBG;
+    float randomBotAutoJoinMinOnlineRatio;
 
     std::string randomBotAutoJoinICBrackets;
     std::string randomBotAutoJoinEYBrackets;
