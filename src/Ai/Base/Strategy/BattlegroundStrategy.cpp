@@ -20,6 +20,7 @@ void BattlegroundStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("bg waiting", { NextAction("bg move to start", ACTION_BG)}));
     triggers.push_back(new TriggerNode("bg active", { NextAction("bg move to objective", ACTION_BG)}));
+    triggers.push_back(new TriggerNode("bg player order", { NextAction("bg move to objective", ACTION_EMERGENCY)}));
     triggers.push_back(new TriggerNode("often", { NextAction("bg check objective", ACTION_BG + 1)}));
     triggers.push_back(new TriggerNode("dead", { NextAction("bg reset objective force", ACTION_EMERGENCY)}));
 }

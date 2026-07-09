@@ -299,6 +299,23 @@ public:
     std::vector<uint32> pvpProhibitedZoneIds;
     std::vector<uint32> pvpProhibitedAreaIds;
     bool fastReactInBG;
+    bool hardModeBG;
+    uint32 bgOrderDurationSec;
+    uint32 bgObjectiveStaleSec;
+    uint32 bgMaxBotsPerNode;
+    float bgNodeRadius;
+    bool bgRotateAfterCap;
+    uint32 bgIndependenceLevel;
+    float bgSaturationPenalty;
+    float bgContestRadarRange;
+    uint32 bgReactDelay;
+    uint32 bgAttackPriority;
+    uint32 bgEnemyAggroRange;
+    uint32 bgChaseEnemyChance;
+    uint32 bgDefaultStrategyBias;
+    bool bgCombatObjectivePush;
+    uint32 bgAbEnemyDetourChance;
+    uint32 bgAvEnemyDetourChance;
 
     bool randombotsWalkingRPG;
     bool randombotsWalkingRPGInDoors;

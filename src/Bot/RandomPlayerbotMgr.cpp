@@ -17,6 +17,7 @@
 
 #include "AiFactory.h"
 #include "Battleground.h"
+#include "BgOrderRegistry.h"
 #include "BattlegroundMgr.h"
 #include "ChannelMgr.h"
 #include "DBCStores.h"
@@ -3444,10 +3445,165 @@ bool RandomPlayerbotMgr::HandlePlayerbotConsoleCommand(ChatHandler* /*handler*/,
     return true;
 }
 
+namespace
+{
+bool IsBotNearPlayerForChannelCommand(Player* bot, Player* fromPlayer)
+{
+    if (!bot || !fromPlayer || !bot->IsInWorld() || !fromPlayer->IsInWorld())
+        return false;
+
+    if (bot->GetMapId() != fromPlayer->GetMapId())
+        return false;
+
+    return bot->GetExactDist(fromPlayer) <= sPlayerbotAIConfig.reactDistance;
+}
+
+bool BotIsInChannel(Player* bot, std::string const& channelName)
+{
+    if (channelName.empty())
+        return true;
+
+    ChannelMgr* cMgr = ChannelMgr::forTeam(bot->GetTeamId());
+    if (!cMgr)
+        return false;
+
+    return cMgr->GetChannel(channelName, bot) != nullptr;
+}
+
+Player* FindNearestChannelCommandBot(RandomPlayerbotMgr& mgr, Player* fromPlayer, std::string const& channelName)
+{
+    Player* nearestBot = nullptr;
+    float nearestDist = sPlayerbotAIConfig.reactDistance;
+
+    for (PlayerBotMap::const_iterator it = mgr.GetPlayerBotsBegin(); it != mgr.GetPlayerBotsEnd(); ++it)
+    {
+        Player* const bot = it->second;
+        if (!bot || !bot->IsInWorld())
+            continue;
+
+        if (!BotIsInChannel(bot, channelName))
+            continue;
+
+        if (!IsBotNearPlayerForChannelCommand(bot, fromPlayer))
+            continue;
+
+        PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+        if (!botAI)
+            continue;
+
+        float const dist = bot->GetExactDist(fromPlayer);
+        if (dist > nearestDist)
+            continue;
+
+        nearestDist = dist;
+        nearestBot = bot;
+    }
+
+    return nearestBot;
+}
+}  // namespace
+
+void RandomPlayerbotMgr::SetBgTeamOrder(BgTeamOrder const& order)
+{
+    bgTeamOrders[BgOrderRegistry::MakeOrderKey(order.instanceId, order.teamId)] = order;
+}
+
+BgTeamOrder const* RandomPlayerbotMgr::GetBgTeamOrder(Battleground* bg, TeamId team)
+{
+    if (!bg)
+        return nullptr;
+
+    auto itr = bgTeamOrders.find(BgOrderRegistry::MakeOrderKey(bg->GetInstanceID(), team));
+    if (itr == bgTeamOrders.end())
+        return nullptr;
+
+    if (itr->second.expireTime <= GameTime::GetGameTime().count())
+    {
+        bgTeamOrders.erase(itr);
+        return nullptr;
+    }
+
+    return &itr->second;
+}
+
+void RandomPlayerbotMgr::ClearBgTeamOrders(uint32 instanceId)
+{
+    for (auto itr = bgTeamOrders.begin(); itr != bgTeamOrders.end();)
+    {
+        if (itr->second.instanceId == instanceId)
+            itr = bgTeamOrders.erase(itr);
+        else
+            ++itr;
+    }
+}
+
+bool RandomPlayerbotMgr::TryHandleBgTeamOrderChat(Player* player, std::string const& msg)
+{
+    if (!player || player->GetSession()->IsBot())
+        return false;
+
+    Battleground* bg = player->GetBattleground();
+    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    BgOrderAction action;
+    std::string nodeToken;
+    if (!BgOrderRegistry::TryParseOrder(msg, action, nodeToken))
+        return false;
+
+    BgNodeRef node;
+    if (!BgOrderRegistry::ResolveNode(bg, player->GetTeamId(), nodeToken, node))
+    {
+        ChatHandler(player->GetSession())
+            .PSendSysMessage("|cffff0000Could not find node '%s' in this battleground.", nodeToken.c_str());
+        return true;
+    }
+
+    BgTeamOrder order;
+    order.action = action;
+    order.nodeId = node.nodeId;
+    order.nodeName = nodeToken;
+    order.instanceId = bg->GetInstanceID();
+    order.teamId = player->GetTeamId();
+    order.expireTime = GameTime::GetGameTime().count() + sPlayerbotAIConfig.bgOrderDurationSec;
+    order.position = node.position;
+    SetBgTeamOrder(order);
+
+    ChatHandler(player->GetSession())
+        .PSendSysMessage("|cff00ff00Team order: %s %s (%u sec).",
+                         action == BgOrderAction::Defend ? "defend" : "attack", nodeToken.c_str(),
+                         sPlayerbotAIConfig.bgOrderDurationSec);
+    return true;
+}
+
 void RandomPlayerbotMgr::HandleCommand(uint32 type, std::string const text, Player* fromPlayer, std::string channelName)
 {
     if (!fromPlayer)
         return;
+
+    bool const publicChannel = PlayerbotAI::IsPublicChannelChat(type);
+
+    if (publicChannel)
+    {
+        switch (PlayerbotAI::GetPublicChannelDispatchMode(text))
+        {
+            case PublicChannelDispatchMode::Blocked:
+                return;
+            case PublicChannelDispatchMode::SingleNearest:
+            {
+                Player* const bot = FindNearestChannelCommandBot(*this, fromPlayer, channelName);
+                if (!bot)
+                    return;
+
+                if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
+                    botAI->HandleCommand(type, text, fromPlayer);
+
+                return;
+            }
+            case PublicChannelDispatchMode::Nearby:
+                break;
+        }
+    }
 
     for (PlayerBotMap::const_iterator it = GetPlayerBotsBegin(); it != GetPlayerBotsEnd(); ++it)
     {
@@ -3455,15 +3611,11 @@ void RandomPlayerbotMgr::HandleCommand(uint32 type, std::string const text, Play
         if (!bot || !bot->IsInWorld())
             continue;
 
-        if (!channelName.empty())
-        {
-            if (ChannelMgr* cMgr = ChannelMgr::forTeam(bot->GetTeamId()))
-            {
-                Channel* chn = cMgr->GetChannel(channelName, bot);
-                if (!chn)
-                    continue;
-            }
-        }
+        if (!BotIsInChannel(bot, channelName))
+            continue;
+
+        if (publicChannel && !IsBotNearPlayerForChannelCommand(bot, fromPlayer))
+            continue;
 
         PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
         if (!botAI)

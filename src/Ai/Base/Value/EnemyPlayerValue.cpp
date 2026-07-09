@@ -18,7 +18,9 @@
 void NearestEnemyPlayersValue::FindUnits(std::list<Unit*>& targets)
 {
     float scanRange = range;
-    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+    if (bot->InBattleground())
+        scanRange = float(sPlayerbotAIConfig.bgEnemyAggroRange);
+    else if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
         scanRange = float(sPlayerbotAIConfig.randomBotOpenWorldPvpAggroRange);
 
     Acore::AnyUnfriendlyUnitInObjectRangeCheck u_check(bot, bot, scanRange);
@@ -38,7 +40,9 @@ bool NearestEnemyPlayersValue::AcceptUnit(Unit* unit)
         return false;
 
     bool validTarget = false;
-    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
+    if (bot->InBattleground())
+        validTarget = true;
+    else if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(bot))
         validTarget = sRandomPlayerbotMgr.ShouldEngageOpenWorldPvpTarget(bot, enemy);
     else if (enemy->IsPvP() || enemy->IsFFAPvP())
         validTarget = true;
@@ -208,5 +212,5 @@ float EnemyPlayerValue::GetMaxAttackDistance()
             return 120.0f;
     }
 
-    return 40.0f;
+    return float(sPlayerbotAIConfig.bgEnemyAggroRange);
 }

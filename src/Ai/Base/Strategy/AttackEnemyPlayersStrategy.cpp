@@ -12,7 +12,9 @@
 void AttackEnemyPlayersStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     float priority = 55.0f;
-    if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(botAI->GetBot()))
+    if (botAI->GetBot()->InBattleground())
+        priority = float(sPlayerbotAIConfig.bgAttackPriority);
+    else if (sRandomPlayerbotMgr.ShouldUseRandomBotOpenWorldPvp(botAI->GetBot()))
         priority = float(sPlayerbotAIConfig.randomBotOpenWorldPvpAttackPriority);
 
     triggers.push_back(new TriggerNode("random bot pvp seek", { NextAction("attack enemy player", priority) }));

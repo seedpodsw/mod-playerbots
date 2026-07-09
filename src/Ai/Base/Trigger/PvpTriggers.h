@@ -85,6 +85,14 @@ public:
     bool IsActive() override;
 };
 
+class BgPlayerOrderActiveTrigger : public Trigger
+{
+public:
+    BgPlayerOrderActiveTrigger(PlayerbotAI* botAI) : Trigger(botAI, "bg player order", 2) {}
+
+    bool IsActive() override;
+};
+
 class BgWaitingTrigger : public Trigger
 {
 public:

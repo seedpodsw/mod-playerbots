@@ -9,6 +9,7 @@
 #include "NewRpgInfo.h"
 #include "ObjectGuid.h"
 #include "PlayerbotMgr.h"
+#include "BgOrderRegistry.h"
 #include "GameTime.h"
 #include "PlayerbotCommandServer.h"
 #include <unordered_set>
@@ -152,6 +153,10 @@ public:
     bool IsRandomBotOpenWorldPvpArea(Player* bot);
     bool ShouldEngageOpenWorldPvpTarget(Player* bot, Player* enemy);
     void UpdateRandomBotOpenWorldPvpFlag(Player* bot);
+    bool TryHandleBgTeamOrderChat(Player* player, std::string const& msg);
+    void SetBgTeamOrder(BgTeamOrder const& order);
+    BgTeamOrder const* GetBgTeamOrder(Battleground* bg, TeamId team);
+    void ClearBgTeamOrders(uint32 instanceId);
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
     void Randomize(Player* bot);
@@ -315,6 +320,8 @@ private:
     // Account lists
     std::vector<uint32> rndBotTypeAccounts;             // Accounts marked as RNDbot (type 1)
     std::vector<uint32> addClassTypeAccounts;           // Accounts marked as AddClass (type 2)
+
+    std::unordered_map<uint64_t, BgTeamOrder> bgTeamOrders;
 
     //void ScaleBotActivity();      // Deprecated function
     static inline uint32 NowSeconds() { return static_cast<uint32>(GameTime::GetGameTime().count()); }

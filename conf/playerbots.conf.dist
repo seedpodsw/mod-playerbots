@@ -1392,6 +1392,43 @@ AiPlayerbot.PvpProhibitedAreaIds = "976,35,392,2268,4161,4010,4317,4312,3649,388
 AiPlayerbot.FastReactInBG = 1
 
 #
+# Hard Mode Battleground AI
+#
+# Master switch for pro-tier BG behavior: faster combat react, higher PvP priority, offensive strategy bias,
+# bot independence (spread/rotate without player orders), and anti-stall objective lifecycle.
+# Default: 0 (legacy). Set to 1 for recommended pro preset (also sets BgIndependenceLevel=2 when unset).
+AiPlayerbot.HardModeBG = 0
+
+# Team-wide player callouts in BG (any real player on your team): "bg defend stables", "bg attack farm",
+# or shorthand "defend farm" / "attack blacksmith" in party, raid, say, or yell.
+AiPlayerbot.BgOrderDurationSec = 120
+
+# Anti-stall: force objective refresh after this many seconds on the same node.
+AiPlayerbot.BgObjectiveStaleSec = 45
+
+# Max friendly bots within BgNodeRadius before extras peel to another node.
+AiPlayerbot.BgMaxBotsPerNode = 2
+AiPlayerbot.BgNodeRadius = 15.0
+
+# Rotate to next attack target when a node becomes friendly-owned and secure.
+AiPlayerbot.BgRotateAfterCap = 1
+
+# Bot independence without player orders: 0=legacy, 1=normal spread, 2=pro (default when HardModeBG=1).
+AiPlayerbot.BgIndependenceLevel = 0
+AiPlayerbot.BgSaturationPenalty = 25.0
+AiPlayerbot.BgContestRadarRange = 80.0
+
+# Hard mode combat tuning (used when HardModeBG=1 or overridden explicitly).
+AiPlayerbot.BgReactDelay = 100
+AiPlayerbot.BgAttackPriority = 75
+AiPlayerbot.BgEnemyAggroRange = 100
+AiPlayerbot.BgChaseEnemyChance = 30
+AiPlayerbot.BgDefaultStrategyBias = 65
+AiPlayerbot.BgCombatObjectivePush = 1
+AiPlayerbot.BgAbEnemyDetourChance = 25
+AiPlayerbot.BgAvEnemyDetourChance = 35
+
+#
 #
 ####################################################################################################
 

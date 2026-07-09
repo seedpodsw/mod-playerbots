@@ -201,6 +201,23 @@ bool PlayerbotAIConfig::Initialize()
                                            "3973,4085,4086,4087,4088"),
         pvpProhibitedAreaIds);
     fastReactInBG = sConfigMgr->GetOption<bool>("AiPlayerbot.FastReactInBG", true);
+    hardModeBG = sConfigMgr->GetOption<bool>("AiPlayerbot.HardModeBG", false);
+    bgOrderDurationSec = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgOrderDurationSec", 120);
+    bgObjectiveStaleSec = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgObjectiveStaleSec", 45);
+    bgMaxBotsPerNode = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgMaxBotsPerNode", 2);
+    bgNodeRadius = sConfigMgr->GetOption<float>("AiPlayerbot.BgNodeRadius", 15.0f);
+    bgRotateAfterCap = sConfigMgr->GetOption<bool>("AiPlayerbot.BgRotateAfterCap", true);
+    bgIndependenceLevel = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgIndependenceLevel", hardModeBG ? 2 : 0);
+    bgSaturationPenalty = sConfigMgr->GetOption<float>("AiPlayerbot.BgSaturationPenalty", 25.0f);
+    bgContestRadarRange = sConfigMgr->GetOption<float>("AiPlayerbot.BgContestRadarRange", 80.0f);
+    bgReactDelay = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgReactDelay", 100);
+    bgAttackPriority = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAttackPriority", hardModeBG ? 75 : 55);
+    bgEnemyAggroRange = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgEnemyAggroRange", hardModeBG ? 100 : 80);
+    bgChaseEnemyChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgChaseEnemyChance", hardModeBG ? 30 : 8);
+    bgDefaultStrategyBias = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgDefaultStrategyBias", hardModeBG ? 65 : 50);
+    bgCombatObjectivePush = sConfigMgr->GetOption<bool>("AiPlayerbot.BgCombatObjectivePush", hardModeBG);
+    bgAbEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAbEnemyDetourChance", hardModeBG ? 25 : 5);
+    bgAvEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAvEnemyDetourChance", hardModeBG ? 35 : 8);
     LoadList<std::vector<uint32>>(
         sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotQuestIds", "3802,5505,6502,7761,7848,10277,10285,11492,"
                                            "13188,13189,24499,24511,24710,24712"),

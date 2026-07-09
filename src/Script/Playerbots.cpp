@@ -88,6 +88,7 @@ public:
         PLAYERHOOK_ON_AFTER_UPDATE,
         PLAYERHOOK_ON_BEFORE_CRITERIA_PROGRESS,
         PLAYERHOOK_ON_BEFORE_ACHI_COMPLETE,
+        PLAYERHOOK_CAN_PLAYER_USE_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_GROUP_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_GUILD_CHAT,
@@ -185,6 +186,14 @@ public:
         }
     }
 
+    bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 /*lang*/, std::string& msg) override
+    {
+        if (sRandomPlayerbotMgr.TryHandleBgTeamOrderChat(player, msg))
+            return true;
+
+        return true;
+    }
+
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 /*lang*/, std::string& msg, Player* receiver) override
     {
         if (type != CHAT_MSG_WHISPER)
@@ -201,10 +210,9 @@ public:
 
         botAI->HandleCommand(type, msg, player);
 
-        // hotfix; otherwise the server will crash when whispering logout
-        // https://github.com/mod-playerbots/mod-playerbots/pull/1838
-        // TODO: find the root cause and solve it. (does not happen in party chat)
-        if (msg == "logout")
+        // Block core chat handling for bot logout whispers — prevents re-entrant crash (#1838).
+        std::string const logoutCmd = PlayerbotAI::NormalizeChatCommandText(msg);
+        if (logoutCmd == "logout" || logoutCmd == "logout cancel")
             return false;
 
         return true;
@@ -212,6 +220,9 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 /*lang*/, std::string& msg, Group* group) override
     {
+        if (sRandomPlayerbotMgr.TryHandleBgTeamOrderChat(player, msg))
+            return true;
+
         for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
             Player* const member = itr->GetSource();
@@ -233,6 +244,9 @@ public:
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 /*lang*/, std::string& msg, Guild* /*guild*/) override
     {
         if (type != CHAT_MSG_GUILD)
+            return true;
+
+        if (!PlayerbotAI::LooksLikeChatCommand(msg))
             return true;
 
         PlayerbotMgr* playerbotMgr = PlayerbotsMgr::instance().GetPlayerbotMgr(player);
@@ -267,12 +281,14 @@ public:
 
         PlayerbotMgr* const playerbotMgr = PlayerbotsMgr::instance().GetPlayerbotMgr(player);
 
+        // Normal general/trade chat must not iterate every bot; only explicit bot commands.
+        if (!PlayerbotAI::LooksLikeChatCommand(msg))
+            return true;
+
         if (playerbotMgr != nullptr && channel->GetFlags() & 0x18)
             playerbotMgr->HandleCommand(type, msg);
 
-        // Normal general/trade chat must not iterate every random bot; only explicit bot commands.
-        if (PlayerbotAI::LooksLikeChatCommand(msg))
-            sRandomPlayerbotMgr.HandleCommand(type, msg, player);
+        sRandomPlayerbotMgr.HandleCommand(type, msg, player, channel->GetName());
 
         return true;
     }
@@ -502,24 +518,48 @@ public:
     {
         BGStrategyData data;
 
+        auto rollStrategy = [](uint8 maxStrategy) -> uint8
+        {
+            if (!sPlayerbotAIConfig.hardModeBG)
+                return urand(0, maxStrategy - 1);
+
+            if (urand(0, 99) < sPlayerbotAIConfig.bgDefaultStrategyBias)
+                return 1;  // offensive / front focus depending on BG
+
+            return 0;  // balanced
+        };
+
         switch (bg->GetBgTypeID())
         {
             case BATTLEGROUND_WS:
-                data.allianceStrategy = urand(0, WS_STRATEGY_MAX - 1);
-                data.hordeStrategy = urand(0, WS_STRATEGY_MAX - 1);
+                data.allianceStrategy = rollStrategy(WS_STRATEGY_MAX);
+                data.hordeStrategy = rollStrategy(WS_STRATEGY_MAX);
                 break;
             case BATTLEGROUND_AB:
-                data.allianceStrategy = urand(0, AB_STRATEGY_MAX - 1);
-                data.hordeStrategy = urand(0, AB_STRATEGY_MAX - 1);
+                data.allianceStrategy = rollStrategy(AB_STRATEGY_MAX);
+                data.hordeStrategy = rollStrategy(AB_STRATEGY_MAX);
                 break;
             case BATTLEGROUND_AV:
-                data.allianceStrategy = urand(0, AV_STRATEGY_MAX - 1);
-                data.hordeStrategy = urand(0, AV_STRATEGY_MAX - 1);
+                data.allianceStrategy = rollStrategy(AV_STRATEGY_MAX);
+                data.hordeStrategy = rollStrategy(AV_STRATEGY_MAX);
                 break;
             case BATTLEGROUND_EY:
-                data.allianceStrategy = urand(0, EY_STRATEGY_MAX - 1);
-                data.hordeStrategy = urand(0, EY_STRATEGY_MAX - 1);
+            {
+                auto rollEyStrategy = []() -> uint8
+                {
+                    if (!sPlayerbotAIConfig.hardModeBG)
+                        return urand(0, EY_STRATEGY_MAX - 1);
+
+                    if (urand(0, 99) < sPlayerbotAIConfig.bgDefaultStrategyBias)
+                        return EY_STRATEGY_FRONT_FOCUS;
+
+                    return EY_STRATEGY_BALANCED;
+                };
+
+                data.allianceStrategy = rollEyStrategy();
+                data.hordeStrategy = rollEyStrategy();
                 break;
+            }
             default:
                 break;
         }
@@ -527,7 +567,11 @@ public:
         bgStrategies[bg->GetInstanceID()] = data;
     }
 
-    void OnBattlegroundEnd(Battleground* bg, TeamId /*winnerTeam*/) override { bgStrategies.erase(bg->GetInstanceID()); }
+    void OnBattlegroundEnd(Battleground* bg, TeamId /*winnerTeam*/) override
+    {
+        bgStrategies.erase(bg->GetInstanceID());
+        sRandomPlayerbotMgr.ClearBgTeamOrders(bg->GetInstanceID());
+    }
 };
 
 // Workaround for missing InitEnabledHooksIfNeeded for new BattlefieldScript in ScriptMgr

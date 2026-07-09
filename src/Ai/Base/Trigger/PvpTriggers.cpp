@@ -9,12 +9,13 @@
 #include "BattlegroundEY.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundWS.h"
+#include "BgOrderRegistry.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 #include "ServerFacade.h"
 #include "BattlegroundAV.h"
 #include "BattlegroundEY.h"
 #include "PlayerbotAIConfig.h"
-#include "RandomPlayerbotMgr.h"
 
 namespace
 {
@@ -131,6 +132,19 @@ bool BgActiveTrigger::IsActive()
     }
 
     return false;
+}
+
+bool BgPlayerOrderActiveTrigger::IsActive()
+{
+    Battleground* bg = bot->GetBattleground();
+    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    BgTeamOrder const* order = sRandomPlayerbotMgr.GetBgTeamOrder(bg, bot->GetTeamId());
+    if (!order)
+        return false;
+
+    return BgOrderRegistry::ShouldFulfillTeamOrder(bg, bot->GetTeamId(), *order);
 }
 
 bool BgInviteActiveTrigger::IsActive()

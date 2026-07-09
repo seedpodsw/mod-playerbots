@@ -23,15 +23,70 @@
 #include "BattlegroundRV.h"
 #include "BattlegroundSA.h"
 #include "BattlegroundWS.h"
+#include "BgOrderRegistry.h"
 #include "Event.h"
 #include "GameObject.h"
+#include "GameTime.h"
 #include "IVMapMgr.h"
 #include "PathGenerator.h"
 #include "Playerbots.h"
 #include "PositionValue.h"
 #include "PvpTriggers.h"
+#include "RandomPlayerbotMgr.h"
 #include "ServerFacade.h"
 #include "Vehicle.h"
+
+namespace
+{
+bool ShouldRotateBgObjective(Player* bot, PlayerbotAI* botAI, Battleground* bg, PositionInfo const& pos)
+{
+    if (!bot || !botAI || !bg || !pos.isSet())
+        return false;
+
+    time_t const now = GameTime::GetGameTime().count();
+    if (botAI->bgObjectiveSetTime && now - botAI->bgObjectiveSetTime >= sPlayerbotAIConfig.bgObjectiveStaleSec)
+        return true;
+
+    BattlegroundTypeId bgType = BgOrderRegistry::GetEffectiveBgType(bg);
+    if (botAI->bgLastNodeId && sPlayerbotAIConfig.bgRotateAfterCap &&
+        BgOrderRegistry::IsNodeSecure(bg, bgType, bot->GetTeamId(), botAI->bgLastNodeId))
+        return true;
+
+    Position nodePos(pos.x, pos.y, pos.z);
+    if (BgOrderRegistry::IsNodeSaturated(bg, bot->GetTeamId(), nodePos))
+        return true;
+
+    return false;
+}
+
+bool TryApplyPriorityObjective(Player* bot, PlayerbotAI* botAI, AiObjectContext* context, Battleground* bg,
+                               WorldObject*& bgObjective)
+{
+    PositionMap& posMap = context->GetValue<PositionMap&>("position")->Get();
+
+    if (BgTeamOrder const* order = sRandomPlayerbotMgr.GetBgTeamOrder(bg, bot->GetTeamId()))
+    {
+        BgNodeRef node;
+        if (BgOrderRegistry::TrySelectTeamOrderObjective(bot, bg, *order, node))
+        {
+            BgOrderRegistry::AssignObjectivePosition(bot, botAI, posMap, node);
+            bgObjective = node.gameObject;
+            return true;
+        }
+    }
+
+    BgNodeRef node;
+    BgOrderAction action;
+    if (BgOrderRegistry::TrySelectAutonomousObjective(bot, botAI, bg, node, action))
+    {
+        BgOrderRegistry::AssignObjectivePosition(bot, botAI, posMap, node);
+        bgObjective = node.gameObject;
+        return true;
+    }
+
+    return false;
+}
+}  // namespace
 
 // common bg positions
 Position const WS_WAITING_POS_HORDE_1 = {944.981f, 1423.478f, 345.434f, 6.18f};
@@ -1682,8 +1737,8 @@ bool BGTactics::Execute(Event /*event*/)
         bool inCombat = bot->GetVehicle() ? (bool)AI_VALUE(Unit*, "enemy player target") : bot->IsInCombat();
         if (inCombat && !PlayerHasFlag::IsCapturingFlag(bot))
         {
-            // bot->GetMotionMaster()->MovementExpired();
-            return false;
+            if (!BgOrderRegistry::ShouldPushObjectiveWhileInCombat())
+                return false;
         }
 
         if (!moveToObjective(false))
@@ -1851,7 +1906,18 @@ bool BGTactics::selectObjective(bool reset)
     PositionMap& posMap = context->GetValue<PositionMap&>("position")->Get();
     PositionInfo pos = context->GetValue<PositionMap&>("position")->Get()["bg objective"];
     if (pos.isSet() && !reset)
-        return false;
+    {
+        if (ShouldRotateBgObjective(bot, botAI, bg, pos))
+            reset = true;
+        else
+            return false;
+    }
+
+    if (reset)
+    {
+        botAI->bgObjectiveSetTime = 0;
+        botAI->bgLastNodeId = 0;
+    }
 
     WorldObject* BgObjective = nullptr;
 
@@ -1941,7 +2007,7 @@ bool BGTactics::selectObjective(bool reset)
             }
 
             // --- Nearby Enemy ---
-            if (!BgObjective && urand(0, 99) < 8)
+            if (!BgObjective && urand(0, 99) < BgOrderRegistry::GetEnemyDetourChance(BATTLEGROUND_AV))
             {
                 if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
                 {
@@ -1955,6 +2021,9 @@ bool BGTactics::selectObjective(bool reset)
             }
 
             // --- Snowfall ---
+            if (!BgObjective)
+                TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
+
             bool hasSnowfallRole = enableSnowfall && ((team == TEAM_ALLIANCE && role < 6) || (team == TEAM_HORDE && role < 5));
 
             if (!BgObjective && hasSnowfallRole)
@@ -2287,7 +2356,7 @@ bool BGTactics::selectObjective(bool reset)
                         if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
                             Follow(teamFC);
                     }
-                    else if (urand(0, 99) < 5)
+                    else if (urand(0, 99) < sPlayerbotAIConfig.bgChaseEnemyChance)
                     {
                         // 5% chance to free roam
                         SetSafePos(WS_ROAM_POS, 75.0f);
@@ -2339,7 +2408,7 @@ bool BGTactics::selectObjective(bool reset)
             BgObjective = nullptr;
 
             // --- PRIORITY 1: Nearby enemy (rare aggressive impulse)
-            if (urand(0, 99) < 5)
+            if (urand(0, 99) < BgOrderRegistry::GetAbEnemyDetourChance())
             {
                 if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
                 {
@@ -2395,10 +2464,18 @@ bool BGTactics::selectObjective(bool reset)
                 break;
             }
 
-            // --- PRIORITY 3: Defender logic ---
-            if (isDefender && urand(0, 99) < 85)
+            // --- PRIORITY 3: Player orders + autonomous spread ---
+            if (!BgObjective)
+                TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
+
+            // --- PRIORITY 4: Defender logic ---
+            if (!BgObjective && isDefender)
             {
-                float closestDist = FLT_MAX;
+                GameObject* contestedObjective = nullptr;
+                float contestedDist = FLT_MAX;
+                GameObject* secureObjective = nullptr;
+                float secureDist = FLT_MAX;
+
                 for (uint32 nodeId : AB_AttackObjectives)
                 {
                     uint8 state = ab->GetCapturePointInfo(nodeId)._state;
@@ -2408,23 +2485,37 @@ bool BGTactics::selectObjective(bool reset)
                     bool isOwned = (team == TEAM_ALLIANCE && state == BG_AB_NODE_STATE_ALLY_OCCUPIED) ||
                                    (team == TEAM_HORDE && state == BG_AB_NODE_STATE_HORDE_OCCUPIED);
 
-                    if (!isContested && !isOwned)
+                    if (!isOwned)
                         continue;
 
                     GameObject* go = bg->GetBGObject(nodeId * BG_AB_OBJECTS_PER_NODE);
                     if (!go)
                         continue;
 
+                    Position nodePos = go->GetPosition();
+                    if (BgOrderRegistry::IsNodeSaturated(bg, team, nodePos))
+                        continue;
+
                     float dist = bot->GetDistance(go);
-                    if (dist < closestDist)
+                    if (isContested && dist < contestedDist)
                     {
-                        closestDist = dist;
-                        BgObjective = go;
+                        contestedDist = dist;
+                        contestedObjective = go;
+                    }
+                    else if (!isContested && dist < secureDist)
+                    {
+                        secureDist = dist;
+                        secureObjective = go;
                     }
                 }
+
+                if (contestedObjective)
+                    BgObjective = contestedObjective;
+                else if (secureObjective && urand(0, 99) < BgOrderRegistry::GetDefenderRollForSecureNode())
+                    BgObjective = secureObjective;
             }
 
-            // --- PRIORITY 4: Attack objectives ---
+            // --- PRIORITY 5: Attack objectives ---
             if (!BgObjective)
             {
                 std::vector<GameObject*> objectivePool;
@@ -2452,7 +2543,14 @@ bool BGTactics::selectObjective(bool reset)
                         if (!go || std::find(objectivePool.begin(), objectivePool.end(), go) != objectivePool.end())
                             continue;
 
+                        Position nodePos = go->GetPosition();
+                        if (BgOrderRegistry::IsNodeSaturated(bg, team, nodePos))
+                            continue;
+
                         float dist = bot->GetDistance(go);
+                        dist += float(BgOrderRegistry::CountFriendliesNearNode(
+                                          bg, team, nodePos, sPlayerbotAIConfig.bgNodeRadius)) *
+                                 sPlayerbotAIConfig.bgSaturationPenalty;
                         if ((isSilly && dist > bestDist) || (!isSilly && dist < bestDist))
                         {
                             bestDist = dist;
@@ -2478,12 +2576,13 @@ bool BGTactics::selectObjective(bool reset)
                 if (Map* map = bot->GetMap())
                 {
                     float groundZ = map->GetHeight(rx, ry, rz);
-                    if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                    if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                         rz = groundZ;
                 }
 
                 pos.Set(rx, ry, rz, BgObjective->GetMapId());
                 posMap["bg objective"] = pos;
+                botAI->bgObjectiveSetTime = GameTime::GetGameTime().count();
             }
 
             return true;
@@ -2644,6 +2743,14 @@ bool BGTactics::selectObjective(bool reset)
                         foundObjective = true;
                     }
                 }
+            }
+
+            // --- PRIORITY 3.5: Player orders + autonomous spread ---
+            if (!foundObjective)
+            {
+                WorldObject* eyObjective = nullptr;
+                if (TryApplyPriorityObjective(bot, botAI, context, bg, eyObjective))
+                    foundObjective = true;
             }
 
             // --- PRIORITY 4: Defender Logic ---
@@ -2837,7 +2944,10 @@ bool BGTactics::selectObjective(bool reset)
             }
 
             if (foundObjective)
+            {
                 posMap["bg objective"] = pos;
+                botAI->bgObjectiveSetTime = GameTime::GetGameTime().count();
+            }
 
             return true;
         }
@@ -2853,6 +2963,9 @@ bool BGTactics::selectObjective(bool reset)
             // skip if not the driver
             if (inVehicle && !controlsVehicle)
                 return false;
+
+            if (!controlsVehicle)
+                TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
 
             /* TACTICS */
             if (bot->GetTeamId() == TEAM_HORDE)  // HORDE
@@ -3204,12 +3317,9 @@ bool BGTactics::moveToObjective(bool ignoreDist)
             return false;
         }
 
-        // don't try to move if already close
+        // don't try to move if already close — let atFlag handle capture instead of resetting
         if (bot->GetDistance(pos.x, pos.y, pos.z) < 4.0f)
-        {
-            resetObjective();
             return true;
-        }
 
         // std::ostringstream out; out << "Moving to objective " << pos.x << ", " << pos.y << ", Distance: " <<
         // ServerFacade::instance().GetDistance2d(bot, pos.x, pos.y); bot->Say(out.str(), LANG_UNIVERSAL);
@@ -3390,6 +3500,8 @@ bool BGTactics::resetObjective()
     PositionInfo pos = context->GetValue<PositionMap&>("position")->Get()["bg objective"];
     pos.Reset();
     posMap["bg objective"] = pos;
+    botAI->bgObjectiveSetTime = 0;
+    botAI->bgLastNodeId = 0;
 
     return selectObjective(true);
 }
@@ -3745,19 +3857,21 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
             }
         }
 
-        // If friendlies are capturing, stay to defend but don't capture
+        // If friendlies are capturing, peel to another objective instead of crowding
         if (numCapturing > 0 && capturingPlayer && bot->GetGUID() != capturingPlayer->GetGUID())
         {
-            // Move away if too close to avoid crowding
-            if (bot->GetDistance2d(capturingPlayer) < 3.0f)
-            {
-                float angle = bot->GetAngle(capturingPlayer);
-                float x = bot->GetPositionX() + 5.0f * cos(angle);
-                float y = bot->GetPositionY() + 5.0f * sin(angle);
-                MoveTo(bot->GetMapId(), x, y, bot->GetPositionZ());
-            }
+            resetObjective();
+            if (!startNewPathBegin(vPaths))
+                moveToObjective(true);
+            return true;
+        }
+    }
 
-            // Reset objective and take new path for defending
+    if (targetFlag)
+    {
+        Position flagPos = targetFlag->GetPosition();
+        if (BgOrderRegistry::IsNodeSaturated(bg, bot->GetTeamId(), flagPos))
+        {
             resetObjective();
             if (!startNewPathBegin(vPaths))
                 moveToObjective(true);
