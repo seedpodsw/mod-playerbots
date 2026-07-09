@@ -34,6 +34,10 @@
 
 bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
 {
+    RefreshBot();
+    if (!GetValidBot())
+        return false;
+
     if (dest == WorldPosition())
         return false;
 

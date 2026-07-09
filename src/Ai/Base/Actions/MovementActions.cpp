@@ -42,7 +42,7 @@
 
 MovementAction::MovementAction(PlayerbotAI* botAI, std::string const name) : Action(botAI, name)
 {
-    bot = botAI->GetBot();
+    RefreshBot();
 }
 
 void MovementAction::CreateWp(Player* wpOwner, float x, float y, float z, float o, uint32 entry, bool important)
@@ -171,6 +171,9 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool /*idle
                             bool exact_waypoint, MovementPriority priority, bool lessDelay, bool backwards)
 {
     UpdateMovementState();
+    if (!GetValidBot())
+        return false;
+
     if (!IsMovingAllowed())
     {
         return false;
@@ -932,6 +935,18 @@ bool MovementAction::Follow(Unit* target, float distance) { return Follow(target
 
 void MovementAction::UpdateMovementState()
 {
+    RefreshBot();
+    if (!GetValidBot())
+        return;
+
+    Player* master = nullptr;
+    if (botAI)
+    {
+        Player* masterCandidate = botAI->GetMaster();
+        if (botAI->IsValidPlayer(masterCandidate))
+            master = masterCandidate;
+    }
+
     const bool isCurrentlyRestricted =  // see if the bot is currently slowed, rooted, or otherwise unable to move
         bot->HasUnitState(UNIT_STATE_LOST_CONTROL) || bot->IsRooted() || bot->isFrozen() || bot->IsPolymorphed();
 
@@ -939,7 +954,6 @@ void MovementAction::UpdateMovementState()
     if (!isCurrentlyRestricted && bot->IsAlive())
     {
         // state flags
-        const auto master = botAI ? botAI->GetMaster() : nullptr;
         const auto liquidState = bot->GetLiquidData().Status;
         const float gZ = bot->GetMapWaterOrGroundLevel(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
         const bool onGroundZ = bot->GetPositionZ() < gZ + 1.f;
