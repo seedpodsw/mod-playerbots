@@ -21,6 +21,7 @@
 #include "PlayerbotAI.h"
 #include "QuestDef.h"
 #include "Random.h"
+#include "RandomPlayerbotMgr.h"
 #include "SharedDefines.h"
 #include "Timer.h"
 #include "TravelMgr.h"
@@ -62,7 +63,7 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
     switch (status)
     {
         case RPG_IDLE:
-            if (IsNearbyGroupLeaderBot())
+            if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
                 PruneObsoleteQuests();
             return RandomChangeStatus({RPG_GO_CAMP, RPG_GO_GRIND, RPG_WANDER_RANDOM, RPG_WANDER_NPC, RPG_DO_QUEST,
                                        RPG_TRAVEL_FLIGHT, RPG_REST, RPG_OUTDOOR_PVP});

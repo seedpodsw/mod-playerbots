@@ -551,10 +551,9 @@ uint32 NewRpgBaseAction::BestRewardIndex(Quest const* quest)
 
 bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
 {
-    uint8 level = bot->GetLevel();
-    if (Group* group = bot->GetGroup())
-        if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
-            level = PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
+    uint8 const level = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot)
+                            ? PlayerbotGroupProgression::GetProgressionLevel(bot)
+                            : bot->GetLevel();
 
     if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
         return false;
@@ -690,11 +689,13 @@ bool NewRpgBaseAction::OrganizeQuestLog()
 
 bool NewRpgBaseAction::PruneObsoleteQuests()
 {
-    if (!IsBotLedNearbyGroupBot())
+    if (!sPlayerbotAIConfig.dropObsoleteQuests)
         return false;
 
-    uint8 const progressionLevel =
-        PlayerbotGroupProgression::GetGroupProgressionLevel(bot->GetGroup(), bot);
+    if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+        return false;
+
+    uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
     bool dropped = false;
 
     for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
@@ -1336,12 +1337,6 @@ bool NewRpgBaseAction::IsBotLedNearbyGroupBot() const
 {
     Group* group = bot->GetGroup();
     return group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group);
-}
-
-bool NewRpgBaseAction::IsNearbyGroupLeaderBot() const
-{
-    Group* group = bot->GetGroup();
-    return IsBotLedNearbyGroupBot() && group && group->IsLeader(bot->GetGUID());
 }
 
 bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInfo) const

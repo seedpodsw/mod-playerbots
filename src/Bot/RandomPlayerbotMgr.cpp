@@ -2260,7 +2260,52 @@ int32 GetPreferredMinMobLevel(uint8 progressionLevel)
     int32 const slack = progressionLevel >= 10 ? 4 : 2;
     return std::max(1, int32(progressionLevel) - slack);
 }
+
+uint8 GetProgressionLevel(Player* bot)
+{
+    if (!bot)
+        return 1;
+
+    Group* group = bot->GetGroup();
+    if (group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->IsLeader(bot->GetGUID()))
+        return GetGroupProgressionLevel(group, bot);
+
+    return bot->GetLevel();
+}
 }  // namespace PlayerbotGroupProgression
+
+bool RandomPlayerbotMgr::ShouldUseOpenWorldProgression(Player* bot)
+{
+    if (!bot || bot->InBattleground())
+        return false;
+
+    if (!IsRandomBot(bot))
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || botAI->HasRealPlayerMaster())
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (group)
+    {
+        if (IsBotLedNearbyGroup(group) && !group->IsLeader(bot->GetGUID()))
+            return false;
+
+        for (GroupReference const* gref = group->GetFirstMember(); gref; gref = gref->next())
+        {
+            Player* member = gref->GetSource();
+            if (!member || member == bot)
+                continue;
+
+            PlayerbotAI* memberAI = GET_PLAYERBOT_AI(member);
+            if (!memberAI || memberAI->IsRealPlayer() || memberAI->HasRealPlayerMaster())
+                return false;
+        }
+    }
+
+    return true;
+}
 
 bool RandomPlayerbotMgr::IsRandomBot(Player* bot)
 {

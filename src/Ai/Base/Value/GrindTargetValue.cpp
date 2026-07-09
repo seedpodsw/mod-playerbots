@@ -106,40 +106,45 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
             continue;
         }
 
-        if (group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->GetLeaderGUID() == bot->GetGUID())
+        if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
         {
-            float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
-            float const distFromLeader = bot->GetDistance(unit);
-            uint8 const progressionLevel =
-                PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
+            uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
             int32 const minMobLevel = PlayerbotGroupProgression::GetPreferredMinMobLevel(progressionLevel);
             int32 const mobLevel = unit->GetLevel();
+            float const distFromBot = bot->GetDistance(unit);
 
-            if (distFromLeader > partyRadius)
-                continue;
+            bool const isNearbyLeader = group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) &&
+                                        group->GetLeaderGUID() == bot->GetGUID();
 
-            bool partyInRange = true;
-            for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+            if (isNearbyLeader)
             {
-                Player* member = gref->GetSource();
-                if (!member || !member->IsAlive() || member == bot)
+                float const partyRadius = sPlayerbotAIConfig.lootDistance * 3.0f;
+
+                if (distFromBot > partyRadius)
                     continue;
 
-                if (member->GetMapId() != bot->GetMapId() || member->GetDistance(unit) > partyRadius)
+                bool partyInRange = true;
+                for (GroupReference const* gref = group->GetFirstMember(); gref; gref = gref->next())
                 {
-                    partyInRange = false;
-                    break;
-                }
-            }
+                    Player* member = gref->GetSource();
+                    if (!member || !member->IsAlive() || member == bot)
+                        continue;
 
-            if (!partyInRange)
-                continue;
+                    if (member->GetMapId() != bot->GetMapId() || member->GetDistance(unit) > partyRadius)
+                    {
+                        partyInRange = false;
+                        break;
+                    }
+                }
+
+                if (!partyInRange)
+                    continue;
+            }
 
             if (mobLevel < minMobLevel && !needForQuest(unit))
                 continue;
 
-            // Prefer higher-level mobs in the party bubble; break ties by distance.
-            float const score = float(mobLevel) * 100.0f - distFromLeader;
+            float const score = float(mobLevel) * 100.0f - distFromBot;
             if (!result || score > distance)
             {
                 distance = score;
@@ -197,10 +202,9 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
 
 bool GrindTargetValue::needForQuest(Unit* target)
 {
-    uint8 questLevelRef = bot->GetLevel();
-    if (Group* group = bot->GetGroup())
-        if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
-            questLevelRef = PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
+    uint8 const questLevelRef = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot)
+                                    ? PlayerbotGroupProgression::GetProgressionLevel(bot)
+                                    : bot->GetLevel();
 
     QuestStatusMap& questMap = bot->getQuestStatusMap();
     for (auto& quest : questMap)

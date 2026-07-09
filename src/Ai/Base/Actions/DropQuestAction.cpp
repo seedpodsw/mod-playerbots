@@ -98,10 +98,9 @@ bool CleanQuestLogAction::Execute(Event event)
         if (questLevel == -1) // For scaling quests, default to bot level
             questLevel = botLevel;
 
-        uint8 levelRef = botLevel;
-        if (Group* group = bot->GetGroup())
-            if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
-                levelRef = PlayerbotGroupProgression::GetGroupProgressionLevel(group, bot);
+        uint8 const levelRef = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot)
+                                   ? PlayerbotGroupProgression::GetProgressionLevel(bot)
+                                   : botLevel;
 
         // Check if the quest is trivial (grey) for the bot
         if (PlayerbotGroupProgression::IsQuestTrivialForLevel(levelRef, quest))

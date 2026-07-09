@@ -60,7 +60,6 @@ protected:
     bool CheckRpgStatusAvailable(NewRpgStatus status);
     bool FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInfo) const;
     bool IsBotLedNearbyGroupBot() const;
-    bool IsNearbyGroupLeaderBot() const;
 
 protected:
     /* FOR MOVE FAR */

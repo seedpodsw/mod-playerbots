@@ -57,6 +57,8 @@ int32 GetQuestTrivialLevelDiff(uint8 playerLevel);
 bool IsQuestTrivialForLevel(uint8 playerLevel, Quest const* quest);
 // Average level of alive group members; falls back to the bot's level.
 uint8 GetGroupProgressionLevel(Group const* group, Player* fallback);
+// Level used for gray-quest and grind decisions (group avg for nearby leaders, else bot level).
+uint8 GetProgressionLevel(Player* bot);
 // Minimum mob level worth pulling while leveling as a party.
 int32 GetPreferredMinMobLevel(uint8 progressionLevel);
 }
@@ -121,6 +123,8 @@ public:
     // non-LFG, non-BG, led by a random bot with no real-player master. Always false when the
     // config is disabled, so all call sites gate on it without changing default behavior.
     bool IsBotLedNearbyGroup(Group* group);
+    // Solo random bots and nearby-group leaders: drop gray quests and prefer level-appropriate grind.
+    bool ShouldUseOpenWorldProgression(Player* bot);
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
     void Randomize(Player* bot);

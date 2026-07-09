@@ -8,9 +8,17 @@
 #include "Event.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
+#include "RandomPlayerbotMgr.h"
 
 bool AcceptAllQuestsAction::ProcessQuest(Quest const* quest, Object* questGiver)
 {
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+    {
+        uint8 const level = PlayerbotGroupProgression::GetProgressionLevel(bot);
+        if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
+            return false;
+    }
+
     if (!AcceptQuest(quest, questGiver->GetGUID())) return false;
 
     auto text_quest = ChatHelper::FormatQuest(quest);
