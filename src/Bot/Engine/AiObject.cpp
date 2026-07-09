@@ -5,11 +5,32 @@
 
 #include "AiObject.h"
 
+#include "Player.h"
+#include "PlayerbotAI.h"
 #include "Playerbots.h"
 
 AiObject::AiObject(PlayerbotAI* botAI)
-    : PlayerbotAIAware(botAI), bot(botAI->GetBot()), context(botAI->GetAiObjectContext()), chat(botAI->GetChatHelper())
+    : PlayerbotAIAware(botAI), bot(botAI ? botAI->GetBot() : nullptr), context(botAI->GetAiObjectContext()), chat(botAI->GetChatHelper())
 {
+}
+
+void AiObject::RefreshBot()
+{
+    if (botAI)
+        bot = botAI->GetBot();
+}
+
+Player* AiObject::GetValidBot() const
+{
+    if (!botAI)
+        return nullptr;
+
+    Player* activeBot = botAI->GetBot();
+    if (!activeBot || !activeBot->GetSession() || !activeBot->IsInWorld() ||
+        activeBot->IsDuringRemoveFromWorld())
+        return nullptr;
+
+    return activeBot;
 }
 
 Player* AiObject::GetMaster() { return botAI->GetMaster(); }

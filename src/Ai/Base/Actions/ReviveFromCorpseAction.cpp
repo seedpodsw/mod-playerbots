@@ -199,10 +199,14 @@ bool FindCorpseAction::Execute(Event /*event*/)
 
 bool FindCorpseAction::isUseful()
 {
-    if (bot->InBattleground())
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
         return false;
 
-    return bot->GetCorpse();
+    if (activeBot->InBattleground())
+        return false;
+
+    return activeBot->GetCorpse();
 }
 
 GraveyardStruct const* SpiritHealerAction::GetGrave(bool startZone)

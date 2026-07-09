@@ -176,63 +176,74 @@ bool Engine::DoNextAction(Unit* /*unit*/, uint32 /*depth*/, bool minimal)
         {
             LogAction("A:%s - UNKNOWN", actionNode->getName().c_str());
         }
-        else if (action->isUseful())
+        else if (Player* activeBot = botAI->GetBot();
+                 !activeBot || !activeBot->GetSession() || !activeBot->IsInWorld() ||
+                 activeBot->IsDuringRemoveFromWorld())
         {
-            // Apply multipliers early to avoid unnecessary iterations
-            for (Multiplier* multiplier : multipliers)
+            LogAction("A:%s - STALE BOT", actionNode->getName().c_str());
+        }
+        else
+        {
+            action->RefreshCachedBot();
+
+            if (action->isUseful())
             {
-                relevance *= multiplier->GetValue(action);
-                action->setRelevance(relevance);
-
-                if (relevance <= 0)
+                // Apply multipliers early to avoid unnecessary iterations
+                for (Multiplier* multiplier : multipliers)
                 {
-                    LogAction("Multiplier %s made action %s useless", multiplier->getName().c_str(), action->getName().c_str());
-                    break;
-                }
-            }
+                    relevance *= multiplier->GetValue(action);
+                    action->setRelevance(relevance);
 
-            if (action->isPossible() && relevance > 0)
-            {
-                if (!skipPrerequisites)
-                {
-                    LogAction("A:%s - PREREQ", action->getName().c_str());
-
-                    if (MultiplyAndPush(actionNode->getPrerequisites(), relevance + 0.002f, false, event, "prereq"))
+                    if (relevance <= 0)
                     {
-                        PushAgain(actionNode, relevance + 0.001f, event);
-                        continue;
+                        LogAction("Multiplier %s made action %s useless", multiplier->getName().c_str(), action->getName().c_str());
+                        break;
                     }
                 }
 
-                PerfMonitorOperation* pmo = sPerfMonitor.start(PERF_MON_ACTION, action->getName(), &aiObjectContext->performanceStack);
-                actionExecuted = ListenAndExecute(action, event);
-                if (pmo)
-                    pmo->finish();
-
-                if (actionExecuted)
+                if (action->isPossible() && relevance > 0)
                 {
-                    LogAction("A:%s - OK", action->getName().c_str());
-                    MultiplyAndPush(actionNode->getContinuers(), relevance, false, event, "cont");
-                    lastRelevance = relevance;
-                    delete actionNode;  // Safe memory management
-                    break;
+                    if (!skipPrerequisites)
+                    {
+                        LogAction("A:%s - PREREQ", action->getName().c_str());
+
+                        if (MultiplyAndPush(actionNode->getPrerequisites(), relevance + 0.002f, false, event, "prereq"))
+                        {
+                            PushAgain(actionNode, relevance + 0.001f, event);
+                            continue;
+                        }
+                    }
+
+                    PerfMonitorOperation* pmo = sPerfMonitor.start(PERF_MON_ACTION, action->getName(), &aiObjectContext->performanceStack);
+                    actionExecuted = ListenAndExecute(action, event);
+                    if (pmo)
+                        pmo->finish();
+
+                    if (actionExecuted)
+                    {
+                        LogAction("A:%s - OK", action->getName().c_str());
+                        MultiplyAndPush(actionNode->getContinuers(), relevance, false, event, "cont");
+                        lastRelevance = relevance;
+                        delete actionNode;  // Safe memory management
+                        break;
+                    }
+                    else
+                    {
+                        LogAction("A:%s - FAILED", action->getName().c_str());
+                        MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.003f, false, event, "alt");
+                    }
                 }
                 else
                 {
-                    LogAction("A:%s - FAILED", action->getName().c_str());
+                    LogAction("A:%s - IMPOSSIBLE", action->getName().c_str());
                     MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.003f, false, event, "alt");
                 }
             }
             else
             {
-                LogAction("A:%s - IMPOSSIBLE", action->getName().c_str());
-                MultiplyAndPush(actionNode->getAlternatives(), relevance + 0.003f, false, event, "alt");
+                LogAction("A:%s - USELESS", action->getName().c_str());
+                lastRelevance = relevance;
             }
-        }
-        else
-        {
-            LogAction("A:%s - USELESS", action->getName().c_str());
-            lastRelevance = relevance;
         }
 
         delete actionNode;  // Always delete after processing the action node
@@ -322,6 +333,16 @@ ActionResult Engine::ExecuteAction(std::string const name, Event event, std::str
         if (Qualified* q = dynamic_cast<Qualified*>(action))
             q->Qualify(qualifier);
     }
+
+    Player* activeBot = botAI->GetBot();
+    if (!activeBot || !activeBot->GetSession() || !activeBot->IsInWorld() ||
+        activeBot->IsDuringRemoveFromWorld())
+    {
+        delete actionNode;
+        return ACTION_RESULT_UNKNOWN;
+    }
+
+    action->RefreshCachedBot();
 
     if (!action->isUseful())
     {

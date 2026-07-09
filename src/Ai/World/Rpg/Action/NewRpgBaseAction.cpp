@@ -551,12 +551,16 @@ uint32 NewRpgBaseAction::BestRewardIndex(Quest const* quest)
 
 bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
 {
-    uint8 const level = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
+    uint8 const level = PlayerbotGroupProgression::GetQuestLevelRef(activeBot);
 
     if (PlayerbotGroupProgression::IsQuestTrivialForLevel(level, quest))
         return false;
 
-    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot) &&
         PlayerbotGroupProgression::IsQuestBelowProgressionLevel(level, quest))
         return false;
 
@@ -571,8 +575,12 @@ bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
 
 bool NewRpgBaseAction::IsQuestCapableDoing(Quest const* quest)
 {
-    uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
-    if (levelRef + 3 < bot->GetQuestLevel(quest))
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
+    uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(activeBot);
+    if (levelRef + 3 < activeBot->GetQuestLevel(quest))
         return false;
 
     // Elite quest and dungeon quest etc
@@ -581,8 +589,8 @@ bool NewRpgBaseAction::IsQuestCapableDoing(Quest const* quest)
 
     if (quest->GetSuggestedPlayers() >= 2)
     {
-        Group* group = bot->GetGroup();
-        if (group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->IsLeader(bot->GetGUID()))
+        Group* group = activeBot->GetGroup();
+        if (group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group) && group->IsLeader(activeBot->GetGUID()))
         {
             uint32 aliveCount = 0;
             for (GroupReference const* itr = group->GetFirstMember(); itr; itr = itr->next())
@@ -904,7 +912,8 @@ static std::vector<float> GenerateRandomWeights(int n)
 float NewRpgBaseAction::GetQuestPoiMaxDistance() const
 {
     float maxDistance = 1500.0f;
-    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) && bot->GetLevel() < 10)
+    Player* activeBot = GetValidBot();
+    if (activeBot && sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot) && activeBot->GetLevel() < 10)
         maxDistance = 3500.0f;
 
     return maxDistance;
@@ -912,6 +921,10 @@ float NewRpgBaseAction::GetQuestPoiMaxDistance() const
 
 bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete)
 {
+    RefreshBot();
+    if (!GetValidBot())
+        return false;
+
     Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
     if (!quest)
         return false;
@@ -1046,6 +1059,9 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
 
 WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelocate)
 {
+    if (!bot || !bot->IsInWorld() || bot->IsDuringRemoveFromWorld())
+        return WorldPosition{};
+
     const std::vector<WorldLocation>& locs = sTravelMgr.GetLocsPerLevelCache(bot->GetLevel());
     float hiRange = 500.0f;
     float loRange = 2500.0f;
@@ -1110,6 +1126,9 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
 
 WorldPosition NewRpgBaseAction::SelectRandomCampPos(Player* bot)
 {
+    if (!bot || !bot->IsInWorld() || bot->IsDuringRemoveFromWorld())
+        return WorldPosition{};
+
     const std::vector<WorldLocation> locs = sTravelMgr.GetTravelHubs(bot);
 
     bool inCity = false;
@@ -1153,11 +1172,15 @@ WorldPosition NewRpgBaseAction::SelectRandomCampPos(Player* bot)
 
 bool NewRpgBaseAction::SelectRandomFlightTaxiNode(uint32& flightMasterEntry, WorldPosition& flightMasterPos, std::vector<uint32>& path)
 {
-    TravelMgr::FlightMasterInfo const* info = sTravelMgr.GetNearestFlightMasterInfo(bot);
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
+    TravelMgr::FlightMasterInfo const* info = sTravelMgr.GetNearestFlightMasterInfo(activeBot);
     if (!info)
         return false;
 
-    std::vector<std::vector<uint32>> availablePaths = sTravelMgr.GetOptimalFlightDestinations(bot);
+    std::vector<std::vector<uint32>> availablePaths = sTravelMgr.GetOptimalFlightDestinations(activeBot);
     if (availablePaths.empty())
         return false;
 
@@ -1165,12 +1188,16 @@ bool NewRpgBaseAction::SelectRandomFlightTaxiNode(uint32& flightMasterEntry, Wor
     flightMasterPos = info->pos;
     path = availablePaths[urand(0, availablePaths.size() - 1)];
     LOG_DEBUG("playerbots", "[New RPG] Bot {} select random flight taxi node from:{} (node {}) to:{} ({} available)",
-              bot->GetName(), flightMasterEntry, path[0], path[path.size() - 1], availablePaths.size());
+              activeBot->GetName(), flightMasterEntry, path[0], path[path.size() - 1], availablePaths.size());
     return true;
 }
 
 bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateStatus)
 {
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
     std::vector<NewRpgStatus> availableStatus;
     uint32 probSum = 0;
     for (NewRpgStatus status : candidateStatus)
@@ -1188,7 +1215,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
     if (availableStatus.empty() || probSum == 0)
     {
         botAI->rpgInfo.ChangeToRest();
-        bot->SetStandState(UNIT_STAND_STATE_SIT);
+        activeBot->SetStandState(UNIT_STAND_STATE_SIT);
         return true;
     }
     uint32 rand = urand(1, probSum);
@@ -1218,7 +1245,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
         }
         case RPG_GO_GRIND:
         {
-            WorldPosition pos = SelectRandomGrindPos(bot);
+            WorldPosition pos = SelectRandomGrindPos(activeBot);
             if (pos != WorldPosition())
             {
                 botAI->rpgInfo.ChangeToGoGrind(pos);
@@ -1228,7 +1255,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
         }
         case RPG_GO_CAMP:
         {
-            WorldPosition pos = SelectRandomCampPos(bot);
+            WorldPosition pos = SelectRandomCampPos(activeBot);
             if (pos != WorldPosition())
             {
                 botAI->rpgInfo.ChangeToGoCamp(pos);
@@ -1241,7 +1268,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
             std::vector<uint32> availableQuests;
             for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
             {
-                uint32 questId = bot->GetQuestSlotQuestId(slot);
+                uint32 questId = activeBot->GetQuestSlotQuestId(slot);
                 if (botAI->lowPriorityQuest.find(questId) != botAI->lowPriorityQuest.end())
                     continue;
 
@@ -1257,7 +1284,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
             }
             if (availableQuests.size())
             {
-                uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+                uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(activeBot);
                 uint32 questId = availableQuests[0];
                 int32 bestLevel = -1;
                 for (uint32 id : availableQuests)
@@ -1306,7 +1333,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
         case RPG_REST:
         {
             botAI->rpgInfo.ChangeToRest();
-            bot->SetStandState(UNIT_STAND_STATE_SIT);
+            activeBot->SetStandState(UNIT_STAND_STATE_SIT);
             return true;
         }
         case RPG_OUTDOOR_PVP:
@@ -1317,7 +1344,7 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
         default:
         {
             botAI->rpgInfo.ChangeToRest();
-            bot->SetStandState(UNIT_STAND_STATE_SIT);
+            activeBot->SetStandState(UNIT_STAND_STATE_SIT);
             return true;
         }
     }
@@ -1326,6 +1353,10 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
 
 bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
 {
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
     switch (status)
     {
         case RPG_IDLE:
@@ -1338,12 +1369,12 @@ bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
         }
         case RPG_GO_GRIND:
         {
-            WorldPosition pos = SelectRandomGrindPos(bot);
+            WorldPosition pos = SelectRandomGrindPos(activeBot);
             return pos != WorldPosition();
         }
         case RPG_GO_CAMP:
         {
-            WorldPosition pos = SelectRandomCampPos(bot);
+            WorldPosition pos = SelectRandomCampPos(activeBot);
             return pos != WorldPosition();
         }
         case RPG_WANDER_NPC:
@@ -1356,7 +1387,7 @@ bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
             std::vector<uint32> availableQuests;
             for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
             {
-                uint32 questId = bot->GetQuestSlotQuestId(slot);
+                uint32 questId = activeBot->GetQuestSlotQuestId(slot);
                 if (botAI->lowPriorityQuest.find(questId) != botAI->lowPriorityQuest.end())
                     continue;
 
@@ -1382,9 +1413,9 @@ bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
         }
         case RPG_OUTDOOR_PVP:
         {
-            if (!bot->IsPvP())
+            if (!activeBot->IsPvP())
                 return false;
-            uint32 zoneId = bot->GetZoneId();
+            uint32 zoneId = activeBot->GetZoneId();
             if (zoneId == AREA_NAGRAND)
                 return false;
 
@@ -1399,7 +1430,11 @@ bool NewRpgBaseAction::CheckRpgStatusAvailable(NewRpgStatus status)
 
 bool NewRpgBaseAction::IsBotLedNearbyGroupBot() const
 {
-    Group* group = bot->GetGroup();
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
+    Group* group = activeBot->GetGroup();
     return group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group);
 }
 
@@ -1408,10 +1443,14 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
     if (!IsBotLedNearbyGroupBot() || poiInfo.empty())
         return !poiInfo.empty();
 
-    Group* group = bot->GetGroup();
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return !poiInfo.empty();
+
+    Group* group = activeBot->GetGroup();
     float const partyRadius = PlayerbotGroupProgression::GetNearbyPartyRadius();
     float leadRadius = partyRadius * 2.0f;
-    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(bot) && bot->GetLevel() < 10)
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(activeBot) && activeBot->GetLevel() < 10)
         leadRadius = std::max(leadRadius, GetQuestPoiMaxDistance());
 
     std::vector<POIInfo> filtered;
@@ -1421,12 +1460,12 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
     {
         float dx = poi.pos.x;
         float dy = poi.pos.y;
-        float dz = std::max(bot->GetMap()->GetHeight(dx, dy, MAX_HEIGHT), bot->GetMap()->GetWaterLevel(dx, dy));
+        float dz = std::max(activeBot->GetMap()->GetHeight(dx, dy, MAX_HEIGHT), activeBot->GetMap()->GetWaterLevel(dx, dy));
         if (dz == INVALID_HEIGHT || dz == VMAP_INVALID_HEIGHT_VALUE)
             continue;
 
-        WorldPosition pos(bot->GetMapId(), dx, dy, dz);
-        if (bot->GetDistance(pos) > leadRadius)
+        WorldPosition pos(activeBot->GetMapId(), dx, dy, dz);
+        if (activeBot->GetDistance(pos) > leadRadius)
             continue;
 
         relaxed.push_back(poi);
@@ -1435,10 +1474,10 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
         for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
         {
             Player* member = gref->GetSource();
-            if (!member || !member->IsAlive() || member == bot)
+            if (!member || !member->IsAlive() || member == activeBot)
                 continue;
 
-            if (member->GetMapId() != bot->GetMapId() || member->GetDistance(bot) > partyRadius)
+            if (member->GetMapId() != activeBot->GetMapId() || member->GetDistance(activeBot) > partyRadius)
             {
                 partyCanFollow = false;
                 break;

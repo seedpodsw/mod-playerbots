@@ -21,6 +21,8 @@ public:
 
 protected:
     Player* bot;
+    void RefreshBot();
+    Player* GetValidBot() const;
     Player* GetMaster();
     AiObjectContext* context;
     ChatHelper* chat;

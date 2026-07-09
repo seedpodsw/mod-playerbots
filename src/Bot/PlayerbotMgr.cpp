@@ -1863,10 +1863,8 @@ PlayerbotAI* PlayerbotsMgr::GetPlayerbotAI(Player* player)
     {
         return nullptr;
     }
-    // if (player->GetSession()->isLogingOut() || player->IsDuringRemoveFromWorld())
-    // {
-    //     return nullptr;
-    // }
+    if (player->GetSession()->isLogingOut() || player->IsDuringRemoveFromWorld())
+        return nullptr;
     auto itr = _playerbotsAIMap.find(player->GetGUID());
     if (itr != _playerbotsAIMap.end())
     {

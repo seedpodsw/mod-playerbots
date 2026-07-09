@@ -4489,6 +4489,11 @@ const std::vector<WorldLocation> TravelMgr::GetTeleportLocations(Player* bot)
 
 const std::vector<WorldLocation> TravelMgr::GetTravelHubs(Player* bot)
 {
+    static std::vector<WorldLocation> const emptyHubs;
+
+    if (!bot || !bot->IsInWorld() || bot->IsDuringRemoveFromWorld())
+        return emptyHubs;
+
     std::vector<WorldLocation> locs = bot->GetTeamId() == TEAM_ALLIANCE
                                                  ? allianceHubsPerLevelCache[bot->GetLevel()]
                                                  : hordeHubsPerLevelCache[bot->GetLevel()];
