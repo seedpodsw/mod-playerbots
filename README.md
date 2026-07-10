@@ -54,7 +54,7 @@ This fork extends upstream `master` with ambient random-bot grouping, open-world
 
 - **Honor BGs stay solo** — bots in an ambient `RandomBotGroupNearby` party do not get the `bg` strategy and will not queue; only solo/ungrouped random bots auto-join.
 - **Open-world fights defer BG queue** — bots actively engaged in open-world PvP skip BG join until the fight ends.
-- **Real-player BG fill unchanged** — when a real player queues and slots need filling, `shouldJoinBg` fill logic can still pull eligible bots in.
+- **Real-player BG fill unchanged** — when a real player queues and slots need filling, `shouldJoinBg` fill logic can still pull eligible bots in (even above the bot-started per-bracket Count).
 - See the PvP-realm comment block in [`conf/playerbots.conf.dist`](conf/playerbots.conf.dist) for how `RandomBotOpenWorldPvp`, `RandomBotJoinBG`, and `RandomBotAutoJoinMinOnlineRatio` interact.
 
 ### Performance / DB load
@@ -146,6 +146,8 @@ This fork ships tuned defaults in [`conf/playerbots.conf.dist`](conf/playerbots.
 | `RandomBotAutoJoinBG` | 0 | **1** |
 | `RandomBotAutoJoinWSBrackets` | 7 | **0,1,2,3,4,5,6,7** (all brackets) |
 | `RandomBotAutoJoinABBrackets` | 6 | **0,1,2,3,4,5,6** (all brackets) |
+
+- **Per-bracket instance cap** — `RandomBotAutoJoinBG*Count` is a hard max of concurrent bot-started games per BG type + level bracket (e.g. WSG 20–29). Bots already inside a BG count toward fill so they no longer keep opening extra stacks of the same bracket. Real-player queues still get filled even above that cap.
 
 **Grouping section docs**
 

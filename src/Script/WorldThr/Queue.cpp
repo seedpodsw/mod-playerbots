@@ -15,9 +15,23 @@ void Queue::Push(ActionBasket* action)
         return;
     }
 
+    ActionNode* incomingAction = action->getAction();
+    if (!incomingAction)
+    {
+        delete action;
+        return;
+    }
+
     for (ActionBasket* basket : actions)
     {
-        if (action->getAction()->getName() == basket->getAction()->getName())
+        if (!basket)
+            continue;
+
+        ActionNode* existingAction = basket->getAction();
+        if (!existingAction)
+            continue;
+
+        if (incomingAction->getName() == existingAction->getName())
         {
             updateExistingBasket(basket, action);
             return;
@@ -105,6 +119,9 @@ ActionBasket* Queue::findHighestRelevanceBasket() const
 
 ActionNode* Queue::extractAndDeleteBasket(ActionBasket* basket)
 {
+    if (!basket)
+        return nullptr;
+
     ActionNode* action = basket->getAction();
     actions.remove(basket);
     delete basket;

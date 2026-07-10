@@ -376,26 +376,21 @@ bool BGJoinAction::shouldJoinBg(BattlegroundQueueTypeId queueTypeId, Battlegroun
         return false;
     }
 
-    // Check if bots should join Battleground
+    // Check if bots should join Battleground.
+    // Demand is capped per bracket by RandomBotAutoJoinBG*Count for bot-only games;
+    // player-driven brackets may fill every open instance. Slot reservation happens in JoinQueue.
     uint32 bgAllianceBotCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgAllianceBotCount;
     uint32 bgAlliancePlayerCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgAlliancePlayerCount;
     uint32 bgHordeBotCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgHordeBotCount;
     uint32 bgHordePlayerCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgHordePlayerCount;
-    uint32 activeBgQueue = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].activeBgQueue;
-    uint32 bgInstanceCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgInstanceCount;
+    uint32 fillDemand = sRandomPlayerbotMgr.GetBgFillInstanceDemand(queueTypeId, bracketId);
+    if (!fillDemand)
+        return false;
 
     if (teamId == TEAM_ALLIANCE)
-    {
-        if ((bgAllianceBotCount + bgAlliancePlayerCount) < TeamSize * (activeBgQueue + bgInstanceCount))
-            return true;
-    }
-    else
-    {
-        if ((bgHordeBotCount + bgHordePlayerCount) < TeamSize * (activeBgQueue + bgInstanceCount))
-            return true;
-    }
+        return (bgAllianceBotCount + bgAlliancePlayerCount) < TeamSize * fillDemand;
 
-    return false;
+    return (bgHordeBotCount + bgHordePlayerCount) < TeamSize * fillDemand;
 }
 
 bool BGJoinAction::isUseful()
@@ -713,26 +708,21 @@ bool FreeBGJoinAction::shouldJoinBg(BattlegroundQueueTypeId queueTypeId, Battleg
         return false;
     }
 
-    // Check if bots should join Battleground
+    // Check if bots should join Battleground.
+    // Demand is capped per bracket by RandomBotAutoJoinBG*Count for bot-only games;
+    // player-driven brackets may fill every open instance. Slot reservation happens in JoinQueue.
     uint32 bgAllianceBotCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgAllianceBotCount;
     uint32 bgAlliancePlayerCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgAlliancePlayerCount;
     uint32 bgHordeBotCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgHordeBotCount;
     uint32 bgHordePlayerCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgHordePlayerCount;
-    uint32 activeBgQueue = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].activeBgQueue;
-    uint32 bgInstanceCount = sRandomPlayerbotMgr.BattlegroundData[queueTypeId][bracketId].bgInstanceCount;
+    uint32 fillDemand = sRandomPlayerbotMgr.GetBgFillInstanceDemand(queueTypeId, bracketId);
+    if (!fillDemand)
+        return false;
 
     if (teamId == TEAM_ALLIANCE)
-    {
-        if ((bgAllianceBotCount + bgAlliancePlayerCount) < TeamSize * (activeBgQueue + bgInstanceCount))
-            return true;
-    }
-    else
-    {
-        if ((bgHordeBotCount + bgHordePlayerCount) < TeamSize * (activeBgQueue + bgInstanceCount))
-            return true;
-    }
+        return (bgAllianceBotCount + bgAlliancePlayerCount) < TeamSize * fillDemand;
 
-    return false;
+    return (bgHordeBotCount + bgHordePlayerCount) < TeamSize * fillDemand;
 }
 
 bool BGLeaveAction::Execute(Event /*event*/)

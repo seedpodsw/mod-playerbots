@@ -1319,10 +1319,8 @@ AiPlayerbot.RandomBotAutoJoinMinOnlineRatio = 0.5
 
 # Required Configuration for RandomBotAutoJoinBG
 #
-# Known issue: When enabling many brackets in combination with multiple instances, it can lead to more
-# instances created by bots than intended (over-queuing).
-#
 # This section controls the level brackets and automatic bot participation in battlegrounds and arenas.
+# RandomBotAutoJoinBG*Count is enforced as a per-bracket concurrent cap for bot-started games.
 #
 # Brackets:
 # - Specify the level ranges for bots to auto-join (bracket IDs are per-BG and start at 0 from each BG's minimum level):
@@ -1336,11 +1334,14 @@ AiPlayerbot.RandomBotAutoJoinMinOnlineRatio = 0.5
 #   - Rated Arena:           0=10-14, 1=15-19, 2=20-24, ..., 13=75-79, 14=80-84                     (Default: 14)
 #
 # Counts:
-# - Specify the number of battles to auto-fill per bracket.
-# - For battlegrounds, 'Count" is the number of battles per bracket. For example:
+# - Specify the number of battles to auto-fill per bracket (hard cap for bot-started games).
+# - For battlegrounds, Count is the max concurrent bot-started battles per bracket. For example:
 #   - RandomBotAutoJoinWSBrackets = 6,7
 #   - RandomBotAutoJoinBGWSCount = 1
-#   - These configs would create two battles, one for bracket 6 and one for bracket 7.
+#   - These configs would create at most one bot-started battle for bracket 6 and one for bracket 7
+#     (not unlimited stacks of the same bracket).
+# - Once a bracket already has Count active instances, bots stop opening more of that bracket.
+# - Real players can still queue a further instance of the same bracket; bots will fill that one.
 # - Ensure there are enough eligible bots to meet the specified counts.
 
 # Battleground bracket range possibilities:
@@ -1355,7 +1356,8 @@ AiPlayerbot.RandomBotAutoJoinAVBrackets = 3
 AiPlayerbot.RandomBotAutoJoinEYBrackets = 2
 AiPlayerbot.RandomBotAutoJoinICBrackets = 1
 
-# Battlegrounds battles count (per bracket):
+# Battlegrounds battles count (max concurrent bot-started instances per bracket):
+# Keep these low (1-2). Higher values recreate the "140 bots in one WSG bracket" problem.
 AiPlayerbot.RandomBotAutoJoinBGWSCount = 1
 AiPlayerbot.RandomBotAutoJoinBGABCount = 1
 AiPlayerbot.RandomBotAutoJoinBGAVCount = 0

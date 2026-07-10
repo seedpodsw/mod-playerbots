@@ -35,6 +35,7 @@
 #include "MoveSplineInit.h"
 #include "NewRpgStrategy.h"
 #include "ObjectGuid.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PerfMonitor.h"
 #include "Player.h"
@@ -133,6 +134,7 @@ PlayerbotAI::PlayerbotAI()
     : PlayerbotAIBase(true),
       bot(nullptr),
       master(nullptr),
+      masterGuid(),
       accountId(0),
       aiObjectContext(nullptr),
       currentEngine(nullptr),
@@ -155,6 +157,7 @@ PlayerbotAI::PlayerbotAI(Player* bot)
     : PlayerbotAIBase(true),
       bot(bot),
       master(nullptr),
+      masterGuid(),
       chatHelper(this),
       chatFilter(this),
       security(bot)  // reorder args - whipowill
@@ -260,6 +263,33 @@ PlayerbotAI::~PlayerbotAI()
         PlayerbotsMgr::instance().RemovePlayerBotData(bot->GetGUID(), true);
 }
 
+void PlayerbotAI::SetMaster(Player* newMaster)
+{
+    master = newMaster;
+    masterGuid = newMaster ? newMaster->GetGUID() : ObjectGuid::Empty;
+}
+
+Player* PlayerbotAI::GetValidMaster()
+{
+    if (!masterGuid)
+    {
+        master = nullptr;
+        return nullptr;
+    }
+
+    Player* resolved = ObjectAccessor::FindConnectedPlayer(masterGuid);
+    if (!resolved || !resolved->GetSession() || !resolved->IsInWorld() ||
+        resolved->IsDuringRemoveFromWorld() || resolved->IsBeingTeleported())
+    {
+        master = nullptr;
+        masterGuid = ObjectGuid::Empty;
+        return nullptr;
+    }
+
+    master = resolved;
+    return resolved;
+}
+
 void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
 {
     // Handle the AI check delay
@@ -272,6 +302,8 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     if (!bot || !bot->GetSession() || !bot->IsInWorld() || bot->IsBeingTeleported() ||
         bot->GetSession()->isLogingOut() || bot->IsDuringRemoveFromWorld())
         return;
+
+    GetValidMaster();
 
     // Handle cheat options (set bot health and power if cheats are enabled)
     if (bot->IsAlive() &&
@@ -443,7 +475,7 @@ void PlayerbotAI::UpdateAIGroupMaster()
     // If bot is not in group verify that for is RandomBot before clearing  master and resetting.
     if (!group)
     {
-        if (master && IsRandomBot)
+        if (masterGuid && IsRandomBot)
         {
             SetMaster(nullptr);
             Reset(true);
@@ -454,21 +486,19 @@ void PlayerbotAI::UpdateAIGroupMaster()
 
     // Bot in BG, but master no longer part of a group: release master
     // Exclude alt and addclass bots as they rely on current (real player) master, security-wise.
-    if (bot->InBattleground() && IsRandomBot && master && !master->GetGroup())
+    if (Player* validMaster = GetValidMaster(); bot->InBattleground() && IsRandomBot && validMaster && !validMaster->GetGroup())
         SetMaster(nullptr);
 
-    PlayerbotAI* masterBotAI = nullptr;
-    if (master)
-        masterBotAI = GET_PLAYERBOT_AI(master);
+    Player* validMaster = GetValidMaster();
+    PlayerbotAI* masterBotAI = validMaster ? GET_PLAYERBOT_AI(validMaster) : nullptr;
 
-    if (!master || (masterBotAI && !masterBotAI->IsRealPlayer()))
+    if (!validMaster || (masterBotAI && !masterBotAI->IsRealPlayer()))
     {
         Player* newMaster = FindNewMaster();
         // Only act on an actual change — with a bot master FindNewMaster can now return the
         // same leader every tick, and re-applying it would reset strategies in a loop.
-        if (newMaster && newMaster != master)
+        if (newMaster && newMaster->GetGUID() != masterGuid)
         {
-            master = newMaster;
             botAI->SetMaster(newMaster);
             botAI->ResetStrategies();
 
@@ -4641,16 +4671,19 @@ Player* PlayerbotAI::FindNewMaster()
 
 bool PlayerbotAI::HasRealPlayerMaster() const
 {
-    if (master)
-    {
-        PlayerbotAI* masterBotAI = GET_PLAYERBOT_AI(master);
-        return !masterBotAI || masterBotAI->IsRealPlayer();
-    }
+    Player* validMaster = const_cast<PlayerbotAI*>(this)->GetValidMaster();
+    if (!validMaster)
+        return false;
 
-    return false;
+    PlayerbotAI* masterBotAI = GET_PLAYERBOT_AI(validMaster);
+    return !masterBotAI || masterBotAI->IsRealPlayer();
 }
 
-bool PlayerbotAI::HasActivePlayerMaster() { return master && !GET_PLAYERBOT_AI(master); }
+bool PlayerbotAI::HasActivePlayerMaster()
+{
+    Player* validMaster = GetValidMaster();
+    return validMaster && !GET_PLAYERBOT_AI(validMaster);
+}
 
 bool PlayerbotAI::IsAlt() { return HasRealPlayerMaster() && !sRandomPlayerbotMgr.IsRandomBot(bot); }
 
@@ -4661,7 +4694,7 @@ Player* PlayerbotAI::GetGroupLeader()
             if (Player* player = ObjectAccessor::FindPlayer(group->GetLeaderGUID()))
                 return player;
 
-    return master;
+    return GetValidMaster();
 }
 
 void PlayerbotAI::MarkAmbientGroupLeftForProgression(ObjectGuid leaderGuid)

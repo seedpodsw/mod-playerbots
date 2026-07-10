@@ -29,6 +29,8 @@ struct BattlegroundInfo
     uint32 activeRatedArenaQueue = 0;     // 0 = Inactive, 1 = Active
     uint32 activeSkirmishArenaQueue = 0;  // 0 = Inactive, 1 = Active
     uint32 activeBgQueue = 0;             // 0 = Inactive, 1 = Active
+    // True when a real player is queued for or inside this bracket (bots may exceed auto-join Count to fill).
+    bool playerDriven = false;
 
     // Bots (Arena)
     uint32 ratedArenaBotCount = 0;
@@ -209,6 +211,10 @@ public:
     void CheckLfgQueue();
     void CheckPlayers();
     void LogBattlegroundInfo();
+    // Concurrent BG instances bots may fill for this queue/bracket.
+    // Bot-only brackets are hard-capped by RandomBotAutoJoinBG*Count.
+    // Player-driven brackets may fill every open instance / active queue.
+    uint32 GetBgFillInstanceDemand(BattlegroundQueueTypeId queueTypeId, BattlegroundBracketId bracketId) const;
 
     std::map<TeamId, std::map<BattlegroundTypeId, std::vector<uint32>>> getBattleMastersCache()
     {
