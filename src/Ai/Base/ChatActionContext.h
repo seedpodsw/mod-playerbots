@@ -150,6 +150,7 @@ public:
         creators["home"] = &ChatActionContext::home;
         creators["destroy"] = &ChatActionContext::destroy;
         creators["reset botAI"] = &ChatActionContext::reset_ai;
+        creators["group disbanded"] = &ChatActionContext::group_disbanded;
         creators["buff"] = &ChatActionContext::buff;
         creators["help"] = &ChatActionContext::help;
         creators["gb"] = &ChatActionContext::gb;
@@ -310,6 +311,7 @@ private:
     static Action* ss(PlayerbotAI* botAI) { return new SkipSpellsListAction(botAI); }
     static Action* add_all_loot(PlayerbotAI* botAI) { return new AddAllLootAction(botAI); }
     static Action* reset_ai(PlayerbotAI* botAI) { return new ResetAiAction(botAI); }
+    static Action* group_disbanded(PlayerbotAI* botAI) { return new GroupDisbandedAction(botAI); }
     static Action* gossip_hello(PlayerbotAI* botAI) { return new GossipHelloAction(botAI); }
     static Action* give_leader(PlayerbotAI* botAI) { return new GiveLeaderAction(botAI); }
     static Action* cheat(PlayerbotAI* botAI) { return new CheatAction(botAI); }

@@ -50,6 +50,7 @@ public:
     AttackAnythingAction(PlayerbotAI* botAI) : AttackAction(botAI, "attack anything") {}
 
     std::string const GetTargetName() override { return "grind target"; }
+    Unit* GetTarget() override;
     bool Execute(Event event) override;
     bool isUseful() override;
     bool isPossible() override;

@@ -9,7 +9,9 @@
 #include "Event.h"
 #include "Group.h"
 #include "LootObjectStack.h"
+#include "NewRpgInfo.h"
 #include "NewRpgStrategy.h"
+#include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
 #include "RandomPlayerbotMgr.h"
 #include "RtiTargetValue.h"
@@ -104,6 +106,17 @@ bool AttackAnythingAction::Execute(Event event)
     }
 
     return result;
+}
+
+Unit* AttackAnythingAction::GetTarget()
+{
+    if (botAI->rpgInfo.GetStatus() == RPG_DO_QUEST)
+    {
+        if (Unit* questTarget = context->GetValue<Unit*>("quest objective target")->Get())
+            return questTarget;
+    }
+
+    return Action::GetTarget();
 }
 
 bool AttackAnythingAction::isUseful()

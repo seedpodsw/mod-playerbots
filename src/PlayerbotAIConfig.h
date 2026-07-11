@@ -164,6 +164,9 @@ public:
     uint32 permanentlyInWorldTime;
     uint32 minRandomBotPvpTime, maxRandomBotPvpTime;
     uint32 randomBotsPerInterval;
+    uint32 maxConcurrentBotLogins;
+    uint32 maxConcurrentBotLoginsInit;
+    bool resetRandomBotLoginStateOnStartup;
     uint32 randomBotEventPersistInterval;
     uint32 randomBotLogoutSavesPerInterval;
     bool randomBotRepositoryDirtyOnly;
@@ -407,6 +410,17 @@ public:
     bool autoLearnTrainerSpells;
     bool autoDoQuests;
     bool enableNewRpgStrategy;
+    float questPoiMaxDistance = 1500.0f;
+    float questPoiMaxDistanceLowLevel = 3500.0f;
+    float questObjectivePreferKillWeight = 50.0f;
+    float questObjectivePreferCollectWeight = 20.0f;
+    float zoneScoreLevelFitWeight = 1.0f;
+    float zoneScoreQuestWeight = 1.0f;
+    float zoneScoreGrindWeight = 0.5f;
+    float zoneScoreBotDensityPenalty = 8.0f;
+    uint32 zoneBotCensusRefreshSeconds = 300;
+    uint32 stagnationRelocateSeconds = 120;
+    bool needRelocatePreferFlight = true;
     std::unordered_map<NewRpgStatus, uint32> RpgStatusProbWeight;
     bool syncLevelWithPlayers;
     bool autoLearnQuestSpells;

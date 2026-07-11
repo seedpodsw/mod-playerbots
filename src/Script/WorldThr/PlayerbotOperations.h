@@ -19,7 +19,10 @@
 #include "PlayerbotMgr.h"
 #include "PlayerbotRepository.h"
 #include "PlayerbotTextMgr.h"
+#include "GroupInviteHelper.h"
 #include "RandomPlayerbotMgr.h"
+#include "PlayerbotFactory.h"
+#include "PlayerbotWorldThreadProcessor.h"
 #include "UseMeetingStoneAction.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
@@ -43,6 +46,8 @@ public:
             LOG_DEBUG("playerbots", "GroupInviteOperation: Bot or target not found");
             return false;
         }
+
+        GroupInviteHelper::LeaveStaleGroupForInvite(target, bot);
 
         // Check if target is already in a group
         if (target->GetGroup())
@@ -84,15 +89,7 @@ public:
         if (group->AddMember(target))
         {
             LOG_DEBUG("playerbots", "GroupInviteOperation: Successfully added {} to group", target->GetName());
-            if (sPlayerbotAIConfig.summonWhenGroup && target->GetDistance(bot) > sPlayerbotAIConfig.sightDistance)
-            {
-                PlayerbotAI* targetAI = sPlayerbotsMgr.GetPlayerbotAI(target);
-                if (targetAI)
-                {
-                    SummonAction summonAction(targetAI, "group summon");
-                    summonAction.Teleport(bot, target, true);
-                }
-            }
+            SummonAction::ScheduleGroupPull(target, bot);
             return true;
         }
         else
@@ -138,8 +135,16 @@ public:
         if (!inviter || !target)
             return false;
 
+        GroupInviteHelper::LeaveStaleGroupForInvite(target, inviter);
+
         // Re-validate — the world may have changed between queueing and execution
-        if (target->GetGroup() || target->GetGroupInvite())
+        if (target->GetGroup())
+        {
+            LOG_DEBUG("playerbots", "GroupInviteRequestOperation: {} is still in a group", target->GetName());
+            return false;
+        }
+
+        if (target->GetGroupInvite())
         {
             LOG_DEBUG("playerbots", "GroupInviteRequestOperation: {} is grouped or already invited",
                       target->GetName());
@@ -179,7 +184,10 @@ private:
 class GroupAnswerInviteOperation : public PlayerbotOperation
 {
 public:
-    GroupAnswerInviteOperation(ObjectGuid botGuid, bool accept) : m_botGuid(botGuid), m_accept(accept) {}
+    GroupAnswerInviteOperation(ObjectGuid botGuid, bool accept, std::string declineMessage = {})
+        : m_botGuid(botGuid), m_accept(accept), m_declineMessage(std::move(declineMessage))
+    {
+    }
 
     bool Execute() override
     {
@@ -197,6 +205,8 @@ public:
         {
             if (inviter)
             {
+                GroupInviteHelper::WhisperInviteDecline(bot, inviter, m_declineMessage);
+
                 WorldPacket data(SMSG_GROUP_DECLINE, 10);
                 data << bot->GetName();
                 inviter->SendDirectMessage(&data);
@@ -205,24 +215,45 @@ public:
             return true;
         }
 
-        PlayerbotAI* inviterAI = GET_PLAYERBOT_AI(inviter);
-        bool realPlayerInviter = !inviterAI || inviterAI->IsRealPlayer();
+        bool const realPlayerInviter = GroupInviteHelper::IsRealPlayerInviter(inviter);
+        bool const ownedByInviter = GroupInviteHelper::IsBotOwnedByPlayer(bot, inviter);
+
+        if (realPlayerInviter || ownedByInviter)
+            GroupInviteHelper::ForceLeaveConflictingGroup(bot, inviter);
+        else if (Group* staleGroup = bot->GetGroup())
+        {
+            std::string const message = m_declineMessage.empty()
+                ? PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                      "group_invite_decline_in_group", "I'm already in a group.", {})
+                : m_declineMessage;
+            GroupInviteHelper::WhisperInviteDecline(bot, inviter, message);
+
+            WorldPacket data(SMSG_GROUP_DECLINE, 10);
+            data << bot->GetName();
+            inviter->SendDirectMessage(&data);
+            bot->UninviteFromGroup();
+            return true;
+        }
 
         if (bot->GetGroup())
         {
-            if (!realPlayerInviter)
+            if (realPlayerInviter)
             {
-                WorldPacket data(SMSG_GROUP_DECLINE, 10);
-                data << bot->GetName();
-                inviter->SendDirectMessage(&data);
-                bot->UninviteFromGroup();
-                return true;
+                GroupInviteHelper::WhisperInviteDecline(
+                    bot, inviter,
+                    PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                        "group_invite_decline_in_group", "I'm already in a group.", {}));
             }
 
-            // Real-player invites supersede ambient nearby groups.
-            if (Group* group = bot->GetGroup())
-                Player::RemoveFromGroup(group, bot->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
+            WorldPacket data(SMSG_GROUP_DECLINE, 10);
+            data << bot->GetName();
+            inviter->SendDirectMessage(&data);
+            bot->UninviteFromGroup();
+            return true;
         }
+
+        if (!bot->GetGroupInvite())
+            return false;
 
         if (bot->isAFK())
             bot->ToggleAFK();
@@ -232,14 +263,33 @@ public:
         p << rolesMask;
         bot->GetSession()->HandleGroupAcceptOpcode(p);
 
-        if (!bot->GetGroup() || !bot->GetGroup()->IsMember(inviter->GetGUID()))
-            return false;
+        Group* const joinedGroup = bot->GetGroup();
+        if (!joinedGroup || !joinedGroup->IsMember(bot->GetGUID()) || !joinedGroup->IsMember(inviter->GetGUID()))
+        {
+            if (joinedGroup && (!inviter->GetGroup() || joinedGroup != inviter->GetGroup()))
+                GroupInviteHelper::ForceLeaveConflictingGroup(bot, inviter);
+
+            bot->UninviteFromGroup();
+
+            if (realPlayerInviter)
+            {
+                GroupInviteHelper::WhisperInviteDecline(
+                    bot, inviter,
+                    PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                        "group_invite_decline_failed", "Sorry, I couldn't join your group right now.", {}));
+            }
+
+            WorldPacket data(SMSG_GROUP_DECLINE, 10);
+            data << bot->GetName();
+            inviter->SendDirectMessage(&data);
+            return true;
+        }
 
         PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
         if (!botAI)
             return true;
 
-        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        if (sRandomPlayerbotMgr.IsRandomBot(bot) || ownedByInviter)
             botAI->SetMaster(inviter);
 
         botAI->ResetStrategies();
@@ -248,18 +298,14 @@ public:
 
         botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault("hello", "Hello", {}));
 
-        if (sPlayerbotAIConfig.summonWhenGroup && bot->GetDistance(inviter) > sPlayerbotAIConfig.sightDistance)
-        {
-            SummonAction summonAction(botAI, "group summon");
-            summonAction.Teleport(inviter, bot, true);
-        }
+        SummonAction::ScheduleGroupPull(bot, inviter);
 
         return true;
     }
 
     ObjectGuid GetBotGuid() const override { return m_botGuid; }
 
-    uint32 GetPriority() const override { return 50; }
+    uint32 GetPriority() const override { return 100; }
 
     std::string GetName() const override { return "GroupAnswerInvite"; }
 
@@ -268,6 +314,7 @@ public:
 private:
     ObjectGuid m_botGuid;
     bool m_accept;
+    std::string m_declineMessage;
 };
 
 // Leave an ambient nearby group on the world thread so a real player can invite the bot.
@@ -288,8 +335,10 @@ public:
 
         bool wasInGroup = bot->GetGroup() != nullptr;
 
-        if (Group* group = bot->GetGroup())
-            Player::RemoveFromGroup(group, bot->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
+        if (bot->GetGroupInvite())
+            bot->UninviteFromGroup();
+
+        GroupInviteHelper::ForceLeaveConflictingGroup(bot, player);
 
         if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
         {
@@ -756,6 +805,60 @@ private:
     uint32 m_masterAccountId;
 };
 
+class BotJoinChannelsOperation : public PlayerbotOperation
+{
+public:
+    explicit BotJoinChannelsOperation(ObjectGuid botGuid) : m_botGuid(botGuid) {}
+
+    bool Execute() override
+    {
+        Player* bot = ObjectAccessor::FindConnectedPlayer(m_botGuid);
+        if (!bot)
+            return false;
+
+        PlayerbotHolder::JoinBotChatChannels(bot);
+        return true;
+    }
+
+    ObjectGuid GetBotGuid() const override { return m_botGuid; }
+    uint32 GetPriority() const override { return 5; }
+    std::string GetName() const override { return "BotJoinChannels"; }
+    bool IsValid() const override { return ObjectAccessor::FindConnectedPlayer(m_botGuid) != nullptr; }
+
+private:
+    ObjectGuid m_botGuid;
+};
+
+class BotInitGuildOperation : public PlayerbotOperation
+{
+public:
+    explicit BotInitGuildOperation(ObjectGuid botGuid) : m_botGuid(botGuid) {}
+
+    bool Execute() override
+    {
+        Player* bot = ObjectAccessor::FindConnectedPlayer(m_botGuid);
+        if (!bot || !bot->IsInWorld())
+            return false;
+
+        if (sPlayerbotAIConfig.randomBotGuildCount > 0)
+        {
+            PlayerbotFactory factory(bot, bot->GetLevel());
+            factory.InitGuild();
+        }
+
+        return true;
+    }
+
+    ObjectGuid GetBotGuid() const override { return m_botGuid; }
+    uint32 GetPriority() const override { return 10; }
+    std::string GetName() const override { return "BotInitGuild"; }
+
+    bool IsValid() const override { return ObjectAccessor::FindConnectedPlayer(m_botGuid) != nullptr; }
+
+private:
+    ObjectGuid m_botGuid;
+};
+
 class OnBotLoginOperation : public PlayerbotOperation
 {
 public:
@@ -766,10 +869,12 @@ public:
 
     bool Execute() override
     {
-        // find and verify bot still exists
         Player* bot = ObjectAccessor::FindConnectedPlayer(m_botGuid);
         if (!bot)
+        {
+            PlayerbotHolder::FinishBotLoading(m_botGuid);
             return false;
+        }
 
         PlayerbotHolder* holder = &RandomPlayerbotMgr::instance();
         if (m_masterAccountId)
@@ -781,7 +886,10 @@ public:
         }
 
         if (!holder)
+        {
+            PlayerbotHolder::FinishBotLoading(m_botGuid);
             return false;
+        }
 
         holder->OnBotLogin(bot);
         return true;
@@ -790,7 +898,6 @@ public:
     ObjectGuid GetBotGuid() const override { return m_botGuid; }
     uint32 GetPriority() const override { return 100; }
     std::string GetName() const override { return "OnBotLogin"; }
-
     bool IsValid() const override { return ObjectAccessor::FindConnectedPlayer(m_botGuid) != nullptr; }
 
 private:

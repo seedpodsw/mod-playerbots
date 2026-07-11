@@ -206,6 +206,9 @@ bool RpgHomeBindTrigger::IsActive()
     if (!guidP.HasNpcFlag(UNIT_NPC_FLAG_INNKEEPER))
         return false;
 
+    if (!bot->GetNPCIfCanInteractWith(guidP, UNIT_NPC_FLAG_INNKEEPER))
+        return false;
+
     if (AI_VALUE(WorldPosition, "home bind").distance(bot) < 500.0f)
         return false;
 

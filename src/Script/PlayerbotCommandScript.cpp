@@ -13,15 +13,80 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "GmWatchHelper.h"
 #include "BattleGroundTactics.h"
 #include "Chat.h"
 #include "GuildTaskMgr.h"
+#include "ObjectAccessor.h"
 #include "PerfMonitor.h"
 #include "PlayerbotMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 
 using namespace Acore::ChatCommands;
+
+namespace
+{
+    bool EnsureSelfControl(ChatHandler* handler, Player* player)
+    {
+        if (player->isPossessing())
+        {
+            handler->SendSysMessage("You are possessing something. Use .release or .unpossess first.");
+            return false;
+        }
+
+        if (player->m_mover != player)
+        {
+            handler->SendSysMessage("You must control yourself (dismount / leave vehicle first).");
+            return false;
+        }
+
+        return true;
+    }
+
+    Player* ResolveOnlinePlayer(ChatHandler* handler, char const* args, char const* commandName)
+    {
+        char const* trimmed = args;
+        if (trimmed)
+        {
+            while (*trimmed == ' ')
+                ++trimmed;
+
+            if (!*trimmed)
+                trimmed = nullptr;
+        }
+
+        if (!trimmed)
+        {
+            if (Player* selected = handler->getSelectedPlayer())
+                return selected;
+
+            handler->PSendSysMessage("No player selected. Usage: .{} <player name>", commandName);
+            return nullptr;
+        }
+
+        char nameBuf[512];
+        if (strlen(trimmed) >= sizeof(nameBuf))
+        {
+            handler->SendSysMessage("Player name too long.");
+            return nullptr;
+        }
+
+        strcpy(nameBuf, trimmed);
+
+        Player* target = nullptr;
+        std::string playerName;
+        if (!handler->extractPlayerTarget(nameBuf, &target, nullptr, &playerName))
+            return nullptr;
+
+        if (target)
+            return target;
+
+        handler->PSendSysMessage("Player '{}' not found or not online.",
+            playerName.empty() ? trimmed : playerName.c_str());
+        return nullptr;
+    }
+}
 
 class playerbots_commandscript : public CommandScript
 {
@@ -51,6 +116,10 @@ public:
         };
 
         static ChatCommandTable commandTable = {
+            {"watch", HandleWatchCommand, SEC_GAMEMASTER, Console::No},
+            {"unwatch", HandleUnwatchCommand, SEC_GAMEMASTER, Console::No},
+            {"takeover", HandleTakeoverCommand, SEC_GAMEMASTER, Console::No},
+            {"release", HandleReleaseCommand, SEC_GAMEMASTER, Console::No},
             {"playerbots", playerbotsCommandTable},
         };
 
@@ -206,6 +275,60 @@ public:
             handler->PSendSysMessage("PlayerbotMgr instance not found.");
             return false;
         }
+    }
+
+    static bool HandleWatchCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!EnsureSelfControl(handler, player))
+            return false;
+
+        Player* target = ResolveOnlinePlayer(handler, args, "watch");
+        if (!target)
+            return false;
+
+        if (target->GetGUID() == player->GetGUID())
+        {
+            handler->SendSysMessage("Can't watch yourself.");
+            return false;
+        }
+
+        return GmWatchHelper::BeginWatch(handler, player, target);
+    }
+
+    static bool HandleUnwatchCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        GmWatchHelper::EndWatch(player, true);
+        handler->SendSysMessage("Stopped watching and returned to your previous location.");
+        return true;
+    }
+
+    static bool HandleTakeoverCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!EnsureSelfControl(handler, player))
+            return false;
+
+        Player* target = ResolveOnlinePlayer(handler, args, "takeover");
+        if (!target)
+            return false;
+
+        if (target->GetGUID() == player->GetGUID())
+        {
+            handler->SendSysMessage("Can't take over yourself.");
+            return false;
+        }
+
+        return GmWatchHelper::BeginTakeover(handler, player, target);
+    }
+
+    static bool HandleReleaseCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        GmWatchHelper::EndWatch(player, true);
+        handler->SendSysMessage("Released watch/control and returned to your previous location.");
+        return true;
     }
 };
 

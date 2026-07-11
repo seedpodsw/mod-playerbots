@@ -74,6 +74,7 @@
 #include "PossibleRpgTargetsValue.h"
 #include "PossibleTargetsValue.h"
 #include "PvpValues.h"
+#include "QuestObjectiveTargetValue.h"
 #include "QuestValues.h"
 #include "RTSCValues.h"
 #include "RandomBotUpdateValue.h"
@@ -148,6 +149,7 @@ public:
         creators["pet target"] = &ValueContext::pet_target;
         creators["old target"] = &ValueContext::old_target;
         creators["grind target"] = &ValueContext::grind_target;
+        creators["quest objective target"] = &ValueContext::quest_objective_target;
         creators["aggressive target"] = &ValueContext::aggressive_target;
         creators["rti target"] = &ValueContext::rti_target;
         creators["rti cc target"] = &ValueContext::rti_cc_target;
@@ -265,6 +267,9 @@ public:
         creators["last long move"] = &ValueContext::last_long_move;
 
         creators["free quest log slots"] = &ValueContext::free_quest_log_slots;
+        creators["active quest givers"] = &ValueContext::active_quest_givers;
+        creators["active quest takers"] = &ValueContext::active_quest_takers;
+        creators["active quest objectives"] = &ValueContext::active_quest_objectives;
         creators["dialog status"] = &ValueContext::dialog_status;
         creators["dialog status quest"] = &ValueContext::dialog_status_quest;
         creators["can accept quest npc"] = &ValueContext::can_accept_quest_npc;
@@ -473,6 +478,7 @@ private:
     static UntypedValue* current_cc_target(PlayerbotAI* botAI) { return new CurrentCcTargetValue(botAI); }
     static UntypedValue* pet_target(PlayerbotAI* botAI) { return new PetTargetValue(botAI); }
     static UntypedValue* grind_target(PlayerbotAI* botAI) { return new GrindTargetValue(botAI); }
+    static UntypedValue* quest_objective_target(PlayerbotAI* botAI) { return new QuestObjectiveTargetValue(botAI); }
     static UntypedValue* aggressive_target(PlayerbotAI* botAI) { return new AggressiveTargetValue(botAI); }
     static UntypedValue* rti_target(PlayerbotAI* botAI) { return new RtiTargetValue(botAI); }
     static UntypedValue* rti_cc_target(PlayerbotAI* botAI) { return new RtiCcTargetValue(botAI); }
@@ -518,6 +524,9 @@ private:
     static UntypedValue* home_bind(PlayerbotAI* botAI) { return new HomeBindValue(botAI); }
 
     static UntypedValue* free_quest_log_slots(PlayerbotAI* botAI) { return new FreeQuestLogSlotValue(botAI); }
+    static UntypedValue* active_quest_givers(PlayerbotAI* botAI) { return new ActiveQuestGiversValue(botAI); }
+    static UntypedValue* active_quest_takers(PlayerbotAI* botAI) { return new ActiveQuestTakersValue(botAI); }
+    static UntypedValue* active_quest_objectives(PlayerbotAI* botAI) { return new ActiveQuestObjectivesValue(botAI); }
     static UntypedValue* dialog_status(PlayerbotAI* botAI) { return new DialogStatusValue(botAI); }
     static UntypedValue* dialog_status_quest(PlayerbotAI* botAI) { return new DialogStatusQuestValue(botAI); }
     static UntypedValue* can_accept_quest_npc(PlayerbotAI* botAI) { return new CanAcceptQuestValue(botAI); }

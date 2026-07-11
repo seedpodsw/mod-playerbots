@@ -20,6 +20,8 @@
 #include "BgOrderRegistry.h"
 #include "BattlegroundMgr.h"
 #include "ChannelMgr.h"
+#include "CharacterCache.h"
+#include "GroupMgr.h"
 #include "DBCStores.h"
 #include "DBCStructure.h"
 #include "DatabaseEnv.h"
@@ -432,29 +434,38 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
                 break;
         }
 
-        if (loginBots && botLoading.empty())
+        if (loginBots)
         {
-            loginBots += updateBots;
-            loginBots = std::min(loginBots, maxNewBots);
+            uint32 maxConcurrent = _isBotLogging
+                ? sPlayerbotAIConfig.maxConcurrentBotLoginsInit
+                : sPlayerbotAIConfig.maxConcurrentBotLogins;
+            uint32 loadingCount = PlayerbotHolder::GetBotLoadingCount();
 
-            LOG_DEBUG("playerbots", "{} new bots prepared to login", loginBots);
-
-            // Log in bots
-            for (auto bot : availableBots)
+            if (loadingCount < maxConcurrent)
             {
-                if (GetPlayerBot(bot))
-                    continue;
+                loginBots += updateBots;
+                loginBots = std::min(loginBots, maxNewBots);
+                loginBots = std::min(loginBots, maxConcurrent - loadingCount);
 
-                if (ProcessBot(bot))
+                LOG_DEBUG("playerbots", "{} new bots prepared to login", loginBots);
+
+                // Log in bots
+                for (auto bot : availableBots)
                 {
-                    loginBots--;
+                    if (GetPlayerBot(bot))
+                        continue;
+
+                    if (ProcessBot(bot))
+                    {
+                        loginBots--;
+                    }
+
+                    if (!loginBots || PlayerbotHolder::GetBotLoadingCount() >= maxConcurrent)
+                        break;
                 }
 
-                if (!loginBots)
-                    break;
+                DelayLoginBotsTimer = 0;
             }
-
-            DelayLoginBotsTimer = 0;
         }
     }
 
@@ -855,8 +866,14 @@ void RandomPlayerbotMgr::LoadBattleMastersCache()
             continue;
 
         FactionTemplateEntry const* bmFaction = sFactionTemplateStore.LookupEntry(bmaster->faction);
+        if (!bmFaction)
+            continue;
+
         uint32 bmFactionId = bmFaction->faction;
         FactionEntry const* bmParentFaction = sFactionStore.LookupEntry(bmFactionId);
+        if (!bmParentFaction)
+            continue;
+
         uint32 bmParentTeam = bmParentFaction->team;
         TeamId bmTeam = TEAM_NEUTRAL;
         if (bmParentTeam == 891)
@@ -1596,6 +1613,12 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     uint32 randomTime;
     if (!player)
     {
+        uint32 maxConcurrent = _isBotLogging
+            ? sPlayerbotAIConfig.maxConcurrentBotLoginsInit
+            : sPlayerbotAIConfig.maxConcurrentBotLogins;
+        if (PlayerbotHolder::GetBotLoadingCount() >= maxConcurrent)
+            return false;
+
         AddPlayerBot(botGUID, 0);
         randomTime = urand(1, 2);
 
@@ -1625,6 +1648,21 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
 
     if (player->HasUnitState(UNIT_STATE_IN_FLIGHT))
         return false;
+
+    // Deferred guild/channel setup for bots that logged in during the startup wave
+    // (including grouped bots that never reach ProcessBot(Player*)).
+    if (!_isBotLogging && !GetEventValue(bot, "post_login_setup"))
+    {
+        if (sPlayerbotAIConfig.randomBotGuildCount > 0 && !player->GetGuildId())
+        {
+            PlayerbotFactory factory(player, player->GetLevel());
+            factory.InitGuild();
+        }
+
+        PlayerbotHolder::JoinBotChatChannels(player);
+        SetEventValue(bot, "post_login_setup", 1, 30 * DAY);
+        return true;
+    }
 
     // Non-nearby grouped bots skip mgr lifecycle; nearby groups fall through so
     // ProcessBot(Player*) can run death/revive (randomize/teleport gated inside).
@@ -1749,7 +1787,7 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
         idleBot = true;
     }
 
-    if (idleBot)
+    if (idleBot && !_isBotLogging)
     {
         // randomize
         uint32 randomize = GetEventValue(botId, "randomize");
@@ -1820,12 +1858,15 @@ void RandomPlayerbotMgr::Revive(Player* player)
     Refresh(player);
 
     // Revive nearby-grouped bots in place — teleporting would strand them away from the group
-    if (!IsBotLedNearbyGroup(player->GetGroup()))
+    if (!_isBotLogging && !IsBotLedNearbyGroup(player->GetGroup()))
         RandomTeleportGrindForLevel(player);
 }
 
 void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>& locs, bool hearth)
 {
+    if (_isBotLogging)
+        return;
+
     // ignore when alrdy teleported or not in the world yet.
     if (bot->IsBeingTeleported() || !bot->IsInWorld())
         return;
@@ -2015,7 +2056,8 @@ void RandomPlayerbotMgr::Init()
     if (sPlayerbotAIConfig.randomBotJoinBG)
         sRandomPlayerbotMgr.LoadBattleMastersCache();
 
-    PlayerbotsDatabase.Execute("DELETE FROM playerbots_random_bots WHERE event = 'add'");
+    if (sPlayerbotAIConfig.resetRandomBotLoginStateOnStartup)
+        PlayerbotsDatabase.Execute("DELETE FROM playerbots_random_bots WHERE event = 'add'");
 }
 
 void RandomPlayerbotMgr::RandomTeleportForLevel(Player* bot)
@@ -2356,7 +2398,7 @@ void RandomPlayerbotMgr::Refresh(Player* bot)
         pmo->finish();
 }
 
-bool RandomPlayerbotMgr::IsBotLedNearbyGroup(Group* group)
+bool RandomPlayerbotMgr::IsBotLedNearbyGroup(Group* group) const
 {
     if (!sPlayerbotAIConfig.randomBotGroupNearby || !group)
         return false;
@@ -2380,6 +2422,23 @@ bool RandomPlayerbotMgr::IsBotLedNearbyGroup(Group* group)
         return false;
 
     return true;
+}
+
+bool RandomPlayerbotMgr::IsNearbyGroupBgMember(Player* bot) const
+{
+    if (!bot)
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group || !IsBotLedNearbyGroup(group))
+        return false;
+
+    return !group->IsLeader(bot->GetGUID());
+}
+
+uint32 RandomPlayerbotMgr::GetRandomBotCountInZone(uint32 /*zoneId*/) const
+{
+    return 0;
 }
 
 namespace PlayerbotGroupProgression
@@ -3697,11 +3756,19 @@ void RandomPlayerbotMgr::OnBotLoginInternal(Player* const bot)
         if (playerBots.size() == sRandomPlayerbotMgr.GetMaxAllowedBotCount())
         {
             _isBotLogging = false;
+            LOG_INFO("playerbots", "Random bot login wave complete ({} bots online)", playerBots.size());
+        }
+        else if (playerBots.size() % 100 == 0)
+        {
+            LOG_INFO("playerbots", "Random bot login wave progress: {}/{} online, {} in-flight",
+                playerBots.size(), GetMaxAllowedBotCount(), PlayerbotHolder::GetBotLoadingCount());
         }
     }
 
-    // Run guild recovery/assignment at login to handle empty guild tables after restart.
-    if (sPlayerbotAIConfig.randomBotGuildCount > 0)
+    // Defer guild assignment until after the login wave (see ProcessBot). Creating/joining
+    // guilds inline or via queued ops during mass login contends on GuildMgr and DB sync
+    // queries and has been implicated in heap corruption during startup storms.
+    if (!_isBotLogging && sPlayerbotAIConfig.randomBotGuildCount > 0)
     {
         PlayerbotFactory factory(bot, bot->GetLevel());
         factory.InitGuild();
@@ -3719,29 +3786,34 @@ void RandomPlayerbotMgr::OnBotLoginInternal(Player* const bot)
 
 void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
 {
-    uint32 botsNearby = 0;
+    if (!player)
+        return;
 
-    for (PlayerBotMap::const_iterator it = GetPlayerBotsBegin(); it != GetPlayerBotsEnd(); ++it)
+    WorldSession* session = player->GetSession();
+    if (!session)
+        return;
+
+    if (!session->IsBot())
     {
-        Player* const bot = it->second;
-        if (player == bot /* || GET_PLAYERBOT_AI(player)*/)  // TEST
-            continue;
-
-        Cell playerCell(player->GetPositionX(), player->GetPositionY());
-        Cell botCell(bot->GetPositionX(), bot->GetPositionY());
-
-        // if (playerCell == botCell)
-        // botsNearby++;
-
-        Group* group = bot->GetGroup();
-        if (!group)
-            continue;
-
-        for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+        for (PlayerBotMap::const_iterator it = GetPlayerBotsBegin(); it != GetPlayerBotsEnd(); ++it)
         {
-            Player* member = gref->GetSource();
+            Player* const bot = it->second;
+            if (!bot || player == bot)
+                continue;
+
+            ObjectGuid const groupGuid = sCharacterCache->GetCharacterGroupGuidByGuid(bot->GetGUID());
+            if (groupGuid.IsEmpty())
+                continue;
+
+            Group* group = sGroupMgr->GetGroupByGUID(groupGuid.GetCounter());
+            if (!group || !group->IsMember(player->GetGUID()))
+                continue;
+
             PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
-            if (botAI && member == player && (!botAI->GetMaster() || GET_PLAYERBOT_AI(botAI->GetMaster())))
+            if (!botAI)
+                continue;
+
+            if (!botAI->GetMaster() || GET_PLAYERBOT_AI(botAI->GetMaster()))
             {
                 if (!bot->InBattleground())
                 {
@@ -3750,51 +3822,12 @@ void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
                     botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
                         "hello", "Hello", {}));
                 }
-
-                break;
             }
         }
-    }
 
-    if (botsNearby > 100 && false)
-    {
-        WorldPosition botPos(player);
-
-        // botPos.GetReachableRandomPointOnGround(player, sPlayerbotAIConfig.reactDistance * 2, true);
-
-        // player->TeleportTo(botPos);
-        // player->Relocate(botPos.coord_x, botPos.coord_y, botPos.coord_z, botPos.orientation);
-
-        if (!player->GetFactionTemplateEntry())
-        {
-            botPos.GetReachableRandomPointOnGround(player, sPlayerbotAIConfig.reactDistance * 2, true);
-        }
-        else
-        {
-            std::vector<TravelDestination*> dests = TravelMgr::instance().getRpgTravelDestinations(player, true, true, 200000.0f);
-
-            do
-            {
-                RpgTravelDestination* dest = (RpgTravelDestination*)dests[urand(0, dests.size() - 1)];
-                CreatureTemplate const* cInfo = dest->GetCreatureTemplate();
-                if (!cInfo)
-                    continue;
-
-                FactionTemplateEntry const* factionEntry = sFactionTemplateStore.LookupEntry(cInfo->faction);
-                ReputationRank reaction = Unit::GetFactionReactionTo(player->GetFactionTemplateEntry(), factionEntry);
-
-                if (reaction > REP_NEUTRAL && dest->nearestPoint(&botPos)->GetMapId() == player->GetMapId())
-                {
-                    botPos = *dest->nearestPoint(&botPos);
-                    break;
-                }
-            } while (true);
-        }
-
-        player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_TELEPORTED | AURA_INTERRUPT_FLAG_CHANGE_MAP);
-        player->TeleportTo(botPos);
-
-        // player->Relocate(botPos.getX(), botPos.getY(), botPos.getZ(), botPos.getO());
+        players.push_back(player);
+        LOG_DEBUG("playerbots", "Including non-random bot player {} into random bot update", player->GetName().c_str());
+        return;
     }
 
     if (IsRandomBot(player))
@@ -3803,11 +3836,6 @@ void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
             UpdateRandomBotOpenWorldPvpFlag(player);
         else
             player->SetPvP(sWorld->IsPvPRealm());
-    }
-    else
-    {
-        players.push_back(player);
-        LOG_DEBUG("playerbots", "Including non-random bot player {} into random bot update", player->GetName().c_str());
     }
 }
 

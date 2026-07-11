@@ -61,6 +61,10 @@ bool PossibleRpgTargetsValue::AcceptUnit(Unit* unit)
     if (unit->IsHostileTo(bot) || unit->IsPlayer())
         return false;
 
+    if (Creature* creature = unit->ToCreature())
+        if (creature->GetReactionTo(bot) <= REP_UNFRIENDLY)
+            return false;
+
     if (ServerFacade::instance().GetDistance2d(bot, unit) <= sPlayerbotAIConfig.tooCloseDistance)
         return false;
 
@@ -81,7 +85,7 @@ bool PossibleRpgTargetsValue::AcceptUnit(Unit* unit)
     if (urand(1, 100) < 25 && unit->IsFriendlyTo(bot))
         return true;
 
-    if (urand(1, 100) < 5)
+    if (urand(1, 100) < 5 && unit->IsFriendlyTo(bot))
         return true;
 
     return false;
@@ -163,6 +167,10 @@ bool PossibleNewRpgTargetsValue::AcceptUnit(Unit* unit)
 
     if (unit->IsHostileTo(bot) || unit->IsPlayer())
         return false;
+
+    if (Creature* creature = unit->ToCreature())
+        if (creature->GetReactionTo(bot) <= REP_UNFRIENDLY)
+            return false;
 
     if (unit->HasNpcFlag(UNIT_NPC_FLAG_SPIRITHEALER))
         return false;

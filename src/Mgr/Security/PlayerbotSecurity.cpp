@@ -5,6 +5,7 @@
 
 #include "PlayerbotSecurity.h"
 
+#include "GroupInviteHelper.h"
 #include "LFGMgr.h"
 #include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
@@ -65,6 +66,10 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
         if (fromGroup && botGroup && fromGroup == botGroup && !ignoreGroup)
         {
             if (botAI->GetMaster() == from)
+                return PLAYERBOT_SECURITY_ALLOW_ALL;
+
+            // Real players in the same party can use party chat commands (summon, follow, etc.).
+            if (!from->GetSession()->IsBot())
                 return PLAYERBOT_SECURITY_ALLOW_ALL;
 
             if (reason)
@@ -135,13 +140,25 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
         }
 
         // Real players may release bots from ambient nearby parties (drop group / ready for invite).
-        PlayerbotAI* fromBotAI = GET_PLAYERBOT_AI(from);
-        if ((!fromBotAI || fromBotAI->IsRealPlayer()) && sRandomPlayerbotMgr.IsBotLedNearbyGroup(botGroup))
+        if (!from->GetSession()->IsBot() && sRandomPlayerbotMgr.IsBotLedNearbyGroup(botGroup))
         {
             if (reason)
                 *reason = PLAYERBOT_DENY_NONE;
 
             return PLAYERBOT_SECURITY_ALLOW_ALL;
+        }
+
+        // drop group / leave / ready for invite from a real player who is not in this party
+        if (ignoreGroup && !from->GetSession()->IsBot())
+        {
+            Group* fromGroup = from->GetGroup();
+            if (!fromGroup || fromGroup != botGroup)
+            {
+                if (reason)
+                    *reason = PLAYERBOT_DENY_NONE;
+
+                return PLAYERBOT_SECURITY_ALLOW_ALL;
+            }
         }
 
         if (!ignoreGroup && botGroup->IsFull())
@@ -167,9 +184,17 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
         return PLAYERBOT_SECURITY_INVITE;
     }
 
-    // Non-random bots: only their master has full access
+    // Non-random bots: master and same-account owner have full access.
     if (botAI->GetMaster() == from)
         return PLAYERBOT_SECURITY_ALLOW_ALL;
+
+    if (GroupInviteHelper::IsBotOwnedByPlayer(bot, from))
+        return PLAYERBOT_SECURITY_ALLOW_ALL;
+
+    if (Group* botGroup = bot->GetGroup())
+        if (Group* fromGroup = from->GetGroup())
+            if (botGroup == fromGroup && !from->GetSession()->IsBot())
+                return PLAYERBOT_SECURITY_ALLOW_ALL;
 
     if (reason)
         *reason = PLAYERBOT_DENY_NOT_YOURS;

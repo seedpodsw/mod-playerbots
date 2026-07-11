@@ -24,15 +24,13 @@ bool SetHomeAction::Execute(Event /*event*/)
             return false;
     }
 
-    if (Unit* unit = botAI->GetUnit(selection))
-        if (unit->HasNpcFlag(UNIT_NPC_FLAG_INNKEEPER))
-        {
-            Creature* creature = botAI->GetCreature(selection);
-            bot->GetSession()->SendBindPoint(creature);
-            botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                "set_home_success", "This inn is my new home", {}));
-            return true;
-        }
+    if (Creature* innkeeper = bot->GetNPCIfCanInteractWith(selection, UNIT_NPC_FLAG_INNKEEPER))
+    {
+        bot->GetSession()->SendBindPoint(innkeeper);
+        botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "set_home_success", "This inn is my new home", {}));
+        return true;
+    }
 
     GuidVector npcs = AI_VALUE(GuidVector, "nearest npcs");
     for (ObjectGuid const guid : npcs)

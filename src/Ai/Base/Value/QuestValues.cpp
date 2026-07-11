@@ -266,23 +266,28 @@ std::vector<GuidPosition> ActiveQuestObjectivesValue::Calculate()
 
         for (uint32 objective = 0; objective < QUEST_OBJECTIVES_COUNT; objective++)
         {
+            bool incomplete = false;
+
             if (quest->RequiredItemCount[objective])
             {
                 uint32 reqCount = quest->RequiredItemCount[objective];
                 uint32 hasCount = statusData.ItemCount[objective];
 
-                if (!reqCount || hasCount >= reqCount)
-                    continue;
+                if (reqCount && hasCount < reqCount)
+                    incomplete = true;
             }
 
-            if (quest->RequiredNpcOrGoCount[objective])
+            if (quest->RequiredNpcOrGo[objective])
             {
-                uint32 reqCount = quest->RequiredItemCount[objective];
+                uint32 reqCount = quest->RequiredNpcOrGoCount[objective];
                 uint32 hasCount = statusData.CreatureOrGOCount[objective];
 
-                if (!reqCount || hasCount >= reqCount)
-                    continue;
+                if (reqCount && hasCount < reqCount)
+                    incomplete = true;
             }
+
+            if (!incomplete)
+                continue;
 
             auto q = questMap.find(questId);
 

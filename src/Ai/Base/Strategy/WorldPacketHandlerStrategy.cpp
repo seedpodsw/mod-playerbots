@@ -57,6 +57,7 @@ void WorldPacketHandlerStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
         new TriggerNode("levelup", { NextAction("auto maintenance on levelup", relevance + 3) }));
     // triggers.push_back(new TriggerNode("group destroyed", { NextAction("reset botAI",
     // relevance) }));
+    triggers.push_back(new TriggerNode("group destroyed", { NextAction("group disbanded", relevance) }));
     triggers.push_back(new TriggerNode("group list", { NextAction("reset botAI", relevance) }));
     triggers.push_back(new TriggerNode("see spell", { NextAction("see spell", relevance) }));
     triggers.push_back(new TriggerNode("release spirit", { NextAction("release", relevance) }));

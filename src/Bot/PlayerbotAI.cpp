@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 
+#include "AcceptInvitationAction.h"
 #include "AiFactory.h"
 #include "BudgetValues.h"
 #include "ChannelMgr.h"
@@ -20,14 +21,17 @@
 #include "CreatureData.h"
 #include "EmoteAction.h"
 #include "Engine.h"
+#include "Event.h"
 #include "EventProcessor.h"
 #include "ExternalEventHelper.h"
 #include "GameObjectData.h"
 #include "GameTime.h"
+#include "GroupInviteHelper.h"
 #include "GuildMgr.h"
 #include "LFGMgr.h"
 #include "LastMovementValue.h"
 #include "LastSpellCastValue.h"
+#include "LeaveGroupAction.h"
 #include "LogLevelAction.h"
 #include "LootObjectStack.h"
 #include "MapMgr.h"
@@ -95,6 +99,9 @@ void PlayerbotAI::EnsureUnsecuredCommands()
     unsecuredCommands.insert("lfg");
     unsecuredCommands.insert("pvp stats");
     unsecuredCommands.insert("rpg status");
+    unsecuredCommands.insert("summon");
+    unsecuredCommands.insert("follow");
+    unsecuredCommands.insert("teleport");
 }
 
 PlayerbotChatHandler::PlayerbotChatHandler(Player* pMasterPlayer) : ChatHandler(pMasterPlayer->GetSession()) {}
@@ -985,9 +992,9 @@ void PlayerbotAI::LeaveOrDisbandGroup()
     if (!bot || !bot->GetGroup() || IsRealPlayer())
         return;
 
-    // WotLK uses CMSG_GROUP_DISBAND for both leaders and members leaving a party.
-    WorldPacket* packet = new WorldPacket(CMSG_GROUP_DISBAND);
-    bot->GetSession()->QueuePacket(packet);
+    Group* group = bot->GetGroup();
+    Player::RemoveFromGroup(group, bot->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
+    bot->SetOriginalGroup(nullptr);
 }
 
 bool PlayerbotAI::CommandTextEqualsOrStartsWith(std::string const& text, std::string const& cmd)
@@ -1157,12 +1164,14 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
     }
 
     std::string filtered = text;
+    bool const bypassPrefix = groupReleaseCommand || IsAllowedCommand(commandProbe);
+
     if (!sPlayerbotAIConfig.commandPrefix.empty())
     {
-        if (filtered.find(sPlayerbotAIConfig.commandPrefix) != 0)
+        if (filtered.find(sPlayerbotAIConfig.commandPrefix) == 0)
+            filtered = filtered.substr(sPlayerbotAIConfig.commandPrefix.size());
+        else if (!bypassPrefix)
             return;
-
-        filtered = filtered.substr(sPlayerbotAIConfig.commandPrefix.size());
     }
 
     if (chatMap.empty())
@@ -1294,6 +1303,26 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
 
         WorldPackets::Character::LogoutCancel data = WorldPacket(CMSG_LOGOUT_CANCEL);
         bot->GetSession()->HandleLogoutCancelOpcode(data);
+    }
+    else if (fromPlayer && !fromPlayer->GetSession()->IsBot() && type == CHAT_MSG_WHISPER &&
+             (filtered == "leave" || filtered == "drop group" || filtered == "ready for invite"))
+    {
+        // Run group-release whispers immediately — do not wait for a throttled AI tick.
+        if (filtered == "leave")
+        {
+            LeaveGroupAction action(this);
+            action.Execute(Event("leave", "", fromPlayer));
+        }
+        else if (filtered == "drop group")
+        {
+            DropGroupAction action(this);
+            action.Execute(Event("drop group", "", fromPlayer));
+        }
+        else
+        {
+            ReadyForInviteAction action(this);
+            action.Execute(Event("ready for invite", "", fromPlayer));
+        }
     }
     else
     {
@@ -1573,6 +1602,11 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
             if (guid != bot->GetGUID())
                 return;
             CheckMountStateAction::CompleteDismount(bot);
+            return;
+        }
+        case SMSG_GROUP_INVITE:
+        {
+            GroupInviteHelper::ProcessPendingGroupInvite(bot);
             return;
         }
         default:
@@ -2882,14 +2916,28 @@ WorldObject* PlayerbotAI::GetWorldObject(ObjectGuid guid)
 
 const AreaTableEntry* PlayerbotAI::GetCurrentArea()
 {
+    if (!bot || !bot->IsInWorld())
+        return nullptr;
+
+    Map* map = bot->GetMap();
+    if (!map)
+        return nullptr;
+
     return sAreaTableStore.LookupEntry(
-        bot->GetMap()->GetAreaId(bot->GetPhaseMask(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()));
+        map->GetAreaId(bot->GetPhaseMask(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()));
 }
 
 const AreaTableEntry* PlayerbotAI::GetCurrentZone()
 {
+    if (!bot || !bot->IsInWorld())
+        return nullptr;
+
+    Map* map = bot->GetMap();
+    if (!map)
+        return nullptr;
+
     return sAreaTableStore.LookupEntry(
-        bot->GetMap()->GetZoneId(bot->GetPhaseMask(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()));
+        map->GetZoneId(bot->GetPhaseMask(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()));
 }
 
 std::string PlayerbotAI::GetLocalizedAreaName(const AreaTableEntry* entry)

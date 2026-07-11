@@ -19,7 +19,7 @@
 #include "PathGenerator.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
-#include "QuestDef.h"
+#include "PlayerbotAIConfig.h"
 #include "Random.h"
 #include "RandomPlayerbotMgr.h"
 #include "SharedDefines.h"
@@ -58,6 +58,9 @@ bool StartRpgDoQuestAction::Execute(Event event)
 
 bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
 {
+    int32 const statusProgressionStagnationDuration =
+        int32(sPlayerbotAIConfig.stagnationRelocateSeconds) * IN_MILLISECONDS;
+
     NewRpgInfo& info = botAI->rpgInfo;
     NewRpgStatus status = info.GetStatus();
     switch (status)
@@ -351,9 +354,9 @@ bool NewRpgDoQuestAction::DoIncompleteQuest(NewRpgInfo::DoQuest& data)
             botAI->rpgInfo.ChangeToIdle();
             return true;
         }
-        uint32 rndIdx = urand(0, poiInfo.size() - 1);
-        G3D::Vector2 nearestPoi = poiInfo[rndIdx].pos;
-        int32 objectiveIdx = poiInfo[rndIdx].objectiveIdx;
+        POIInfo bestPoi = SelectBestScoredPOI(poiInfo, questId);
+        G3D::Vector2 nearestPoi = bestPoi.pos;
+        int32 objectiveIdx = bestPoi.objectiveIdx;
 
         float dx = nearestPoi.x, dy = nearestPoi.y;
 
@@ -449,8 +452,8 @@ bool NewRpgDoQuestAction::DoCompletedQuest(NewRpgInfo::DoQuest& data)
             return false;
         }
         assert(poiInfo.size() > 0);
-        // now we get the place to get rewarded
-        float dx = poiInfo[0].pos.x, dy = poiInfo[0].pos.y;
+        POIInfo bestPoi = SelectBestScoredPOI(poiInfo, questId);
+        float dx = bestPoi.pos.x, dy = bestPoi.pos.y;
         // z = MAX_HEIGHT as we do not know accurate z
         float dz = std::max(bot->GetMap()->GetHeight(dx, dy, MAX_HEIGHT), bot->GetMap()->GetWaterLevel(dx, dy));
 

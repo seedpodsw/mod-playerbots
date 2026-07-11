@@ -139,7 +139,8 @@ public:
     // True for a persistent open-world group formed by random bots via RandomBotGroupNearby:
     // non-LFG, non-BG, led by a random bot with no real-player master. Always false when the
     // config is disabled, so all call sites gate on it without changing default behavior.
-    bool IsBotLedNearbyGroup(Group* group);
+    bool IsBotLedNearbyGroup(Group* group) const;
+    bool IsNearbyGroupBgMember(Player* bot) const;
     // Solo random bots and nearby-group leaders: drop gray quests and prefer level-appropriate grind.
     bool ShouldUseOpenWorldProgression(Player* bot);
     // Per-bot progression checks (includes nearby-group members; for prune/leave only).
@@ -189,6 +190,8 @@ public:
     void RandomTeleportGrindForLevel(Player* bot);
     void RandomTeleportForRpg(Player* bot);
     uint32 GetMaxAllowedBotCount();
+    uint32 GetRandomBotCountInZone(uint32 zoneId) const;
+    bool IsBotLogging() const { return _isBotLogging; }
     bool ProcessBot(Player* player);
     void Revive(Player* player);
     void ChangeStrategy(Player* player);

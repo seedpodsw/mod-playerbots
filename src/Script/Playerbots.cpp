@@ -23,6 +23,9 @@
 #include "DatabaseEnv.h"
 #include "DatabaseLoader.h"
 #include "GuildTaskMgr.h"
+#include "GmWatchHelper.h"
+#include "GroupInviteHelper.h"
+#include "ObjectAccessor.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotGuildMgr.h"
@@ -94,7 +97,8 @@ public:
         PLAYERHOOK_CAN_PLAYER_USE_GUILD_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_CHANNEL_CHAT,
         PLAYERHOOK_ON_GIVE_EXP,
-        PLAYERHOOK_ON_BEFORE_TELEPORT
+        PLAYERHOOK_ON_BEFORE_TELEPORT,
+        PLAYERHOOK_CAN_GROUP_INVITE
     }) {}
 
     void OnPlayerLogin(Player* player) override
@@ -171,13 +175,36 @@ public:
         return true;
     }
 
+    bool OnPlayerCanGroupInvite(Player* player, std::string& membername) override
+    {
+        if (!player || membername.empty())
+            return true;
+
+        Player* invited = ObjectAccessor::FindPlayerByName(membername, false);
+        if (!invited)
+            return true;
+
+        if (GET_PLAYERBOT_AI(invited))
+        {
+            GroupInviteHelper::PrepareBotForGroupInvite(invited, player, true);
+        }
+        return true;
+    }
+
     void OnPlayerAfterUpdate(Player* player, uint32 diff) override
     {
+        if (player && player->GetSession() && !player->GetSession()->IsBot())
+            GmWatchHelper::Update(player);
+
         PlayerbotAI* const botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
 
         if (botAI != nullptr)
         {
-            botAI->UpdateAI(diff);
+            if (!(player->GetSession() && player->GetSession()->IsBot() &&
+                  sRandomPlayerbotMgr.IsBotLogging() && sRandomPlayerbotMgr.IsRandomBot(player)))
+            {
+                botAI->UpdateAI(diff);
+            }
         }
 
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))

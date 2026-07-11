@@ -33,11 +33,8 @@ bool TaxiAction::Execute(Event event)
     GuidVector units = *context->GetValue<GuidVector>("nearest npcs");
     for (ObjectGuid const guid : units)
     {
-        Creature* npc = ObjectAccessor::GetCreature(*bot, guid);
-        if (!npc || !npc->IsAlive())
-            continue;
-
-        if (!(npc->GetNpcFlags() & UNIT_NPC_FLAG_FLIGHTMASTER))
+        Creature* npc = bot->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_FLIGHTMASTER);
+        if (!npc)
             continue;
 
         if (bot->GetDistance(npc) > sPlayerbotAIConfig.farDistance)
@@ -76,7 +73,7 @@ bool TaxiAction::Execute(Event event)
             botAI->AddTimedEvent(
                 [bot = bot, &movement, npcGuid]() -> void
                 {
-                    if (Creature* npcPtr = ObjectAccessor::GetCreature(*bot, npcGuid))
+                    if (Creature* npcPtr = bot->GetNPCIfCanInteractWith(npcGuid, UNIT_NPC_FLAG_FLIGHTMASTER))
                         if (!movement.taxiNodes.empty())
                             bot->ActivateTaxiPathTo(movement.taxiNodes, npcPtr, 0);
                 },

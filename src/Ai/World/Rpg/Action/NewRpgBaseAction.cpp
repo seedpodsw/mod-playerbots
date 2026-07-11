@@ -30,7 +30,11 @@
 #include "SharedDefines.h"
 #include "StatsWeightCalculator.h"
 #include "Timer.h"
-#include "TravelMgr.h"
+#include "ProgressionZoneScorer.h"
+#include "QuestValues.h"
+#include "SharedValueContext.h"
+
+#include <cfloat>
 
 bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
 {
@@ -553,7 +557,7 @@ uint32 NewRpgBaseAction::BestRewardIndex(Quest const* quest)
     }
 }
 
-bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
+bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest) const
 {
     Player* activeBot = GetValidBot();
     if (!activeBot)
@@ -577,7 +581,7 @@ bool NewRpgBaseAction::IsQuestWorthDoing(Quest const* quest)
     return true;
 }
 
-bool NewRpgBaseAction::IsQuestCapableDoing(Quest const* quest)
+bool NewRpgBaseAction::IsQuestCapableDoing(Quest const* quest) const
 {
     Player* activeBot = GetValidBot();
     if (!activeBot)
@@ -915,17 +919,175 @@ static std::vector<float> GenerateRandomWeights(int n)
 
 float NewRpgBaseAction::GetQuestPoiMaxDistance() const
 {
-    float maxDistance = 1500.0f;
     Player* activeBot = GetValidBot();
     if (activeBot && sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot) && activeBot->GetLevel() < 10)
-        maxDistance = 3500.0f;
+        return sPlayerbotAIConfig.questPoiMaxDistanceLowLevel;
 
-    return maxDistance;
+    return sPlayerbotAIConfig.questPoiMaxDistance;
 }
 
-bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete)
+G3D::Vector2 NewRpgBaseAction::RefinePoiWithSpawnHints(uint32 questId, int32 objectiveIdx, float dx, float dy) const
 {
-    RefreshBot();
+    if (objectiveIdx < 0)
+        return {dx, dy};
+
+    questGuidpMap questMap = SharedValueContext::instance().getGlobalValue<questGuidpMap>("quest guidp map")->Get();
+    auto q = questMap.find(questId);
+    if (q == questMap.end())
+        return {dx, dy};
+
+    auto qt = q->second.find((int)QuestRelationFlag(1 << objectiveIdx));
+    if (qt == q->second.end())
+        return {dx, dy};
+
+    float bestSpawnDist = FLT_MAX;
+    float spawnX = dx;
+    float spawnY = dy;
+    bool foundSpawn = false;
+
+    for (auto const& entry : qt->second)
+    {
+        for (GuidPosition const& guidp : entry.second)
+        {
+            if (guidp.GetMapId() != bot->GetMapId())
+                continue;
+
+            WorldPosition centroid(bot->GetMapId(), dx, dy, 0.0f);
+            WorldPosition spawnPos(guidp.GetMapId(), guidp.GetPositionX(), guidp.GetPositionY(), guidp.GetPositionZ());
+            float distToCentroid = centroid.fDist(spawnPos);
+            if (distToCentroid > 400.0f)
+                continue;
+
+            if (distToCentroid < bestSpawnDist)
+            {
+                bestSpawnDist = distToCentroid;
+                spawnX = guidp.GetPositionX();
+                spawnY = guidp.GetPositionY();
+                foundSpawn = true;
+            }
+        }
+    }
+
+    if (!foundSpawn)
+        return {dx, dy};
+
+    // Blend centroid toward nearest spawn cluster for large POI polygons.
+    float const blend = 0.65f;
+    return {dx * (1.0f - blend) + spawnX * blend, dy * (1.0f - blend) + spawnY * blend};
+}
+
+float NewRpgBaseAction::ScoreQuestForWork(uint32 questId) const
+{
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    if (!quest || !IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest))
+        return -10000.0f;
+
+    if (botAI->lowPriorityQuest.find(questId) != botAI->lowPriorityQuest.end())
+        return -5000.0f;
+
+    uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+    int32 questLevel = quest->GetQuestLevel();
+    if (questLevel < 0)
+        questLevel = levelRef;
+
+    float score = 100.0f - std::abs(float(questLevel) - float(levelRef)) * 12.0f;
+
+    std::vector<POIInfo> poiInfo;
+    if (GetQuestPOIPosAndObjectiveIdx(questId, poiInfo, true) && FilterQuestPoiForNearbyGroup(poiInfo))
+    {
+        float bestDist = FLT_MAX;
+        for (POIInfo const& poi : poiInfo)
+        {
+            float dist = bot->GetDistance2d(poi.pos.x, poi.pos.y);
+            bestDist = std::min(bestDist, dist);
+        }
+        score -= bestDist * 0.05f;
+    }
+    else
+        score -= 500.0f;
+
+    score += frand(-5.0f, 5.0f);
+
+    LOG_DEBUG("playerbots.progression", "{} quest work score for quest {}: {:.1f}", bot->GetName(), questId, score);
+    return score;
+}
+
+POIInfo NewRpgBaseAction::SelectBestScoredPOI(std::vector<POIInfo> const& poiInfo, uint32 questId) const
+{
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    if (!quest)
+        return poiInfo.front();
+
+    auto statusIt = bot->getQuestStatusMap().find(questId);
+    if (statusIt == bot->getQuestStatusMap().end())
+        return poiInfo.front();
+
+    QuestStatusData const& q_status = statusIt->second;
+
+    POIInfo best = poiInfo.front();
+    float bestScore = -FLT_MAX;
+
+    for (POIInfo const& poi : poiInfo)
+    {
+        float score = -bot->GetDistance2d(poi.pos.x, poi.pos.y);
+
+        int32 objIdx = poi.objectiveIdx;
+        if (quest && objIdx >= 0 && objIdx < QUEST_OBJECTIVES_COUNT)
+        {
+            int32 remaining = quest->RequiredNpcOrGoCount[objIdx] - q_status.CreatureOrGOCount[objIdx];
+            score -= float(std::max(0, remaining)) * 20.0f;
+
+            if (quest->RequiredNpcOrGo[objIdx] > 0)
+                score += sPlayerbotAIConfig.questObjectivePreferKillWeight;
+        }
+        else if (quest && objIdx >= QUEST_OBJECTIVES_COUNT)
+        {
+            int32 itemIdx = objIdx - QUEST_OBJECTIVES_COUNT;
+            if (itemIdx >= 0 && itemIdx < QUEST_ITEM_OBJECTIVES_COUNT)
+            {
+                int32 remaining = quest->RequiredItemCount[itemIdx] - q_status.ItemCount[itemIdx];
+                score -= float(std::max(0, remaining)) * 15.0f;
+                score += sPlayerbotAIConfig.questObjectivePreferCollectWeight;
+            }
+        }
+
+        score += frand(-3.0f, 3.0f);
+
+        if (score > bestScore)
+        {
+            bestScore = score;
+            best = poi;
+        }
+    }
+
+    LOG_DEBUG("playerbots.progression", "{} selected POI for quest {} objective {} score {:.1f}", bot->GetName(), questId,
+              best.objectiveIdx, bestScore);
+    return best;
+}
+
+bool NewRpgBaseAction::TryProgressionFlightRelocate()
+{
+    if (!sPlayerbotAIConfig.needRelocatePreferFlight)
+        return false;
+
+    Player* activeBot = GetValidBot();
+    if (!activeBot || activeBot->GetLevel() < 10)
+        return false;
+
+    uint32 flightMasterEntry = 0;
+    WorldPosition flightMasterPos;
+    std::vector<uint32> path;
+    if (!SelectRandomFlightTaxiNode(flightMasterEntry, flightMasterPos, path))
+        return false;
+
+    botAI->rpgInfo.ChangeToTravelFlight(flightMasterEntry, flightMasterPos, path);
+    LOG_DEBUG("playerbots.progression", "[New RPG] {} need-relocate flight to node {}", activeBot->GetName(),
+              path.empty() ? 0 : path.back());
+    return true;
+}
+
+bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete) const
+{
     if (!GetValidBot())
         return false;
 
@@ -975,7 +1137,8 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
             if (bot->GetZoneId() != bot->GetMap()->GetZoneId(bot->GetPhaseMask(), dx, dy, dz))
                 continue;
 
-            poiInfo.push_back({{dx, dy}, qPoi.ObjectiveIndex});
+            G3D::Vector2 refined = RefinePoiWithSpawnHints(questId, qPoi.ObjectiveIndex, dx, dy);
+            poiInfo.push_back({refined, qPoi.ObjectiveIndex});
         }
 
         if (poiInfo.empty())
@@ -1049,7 +1212,8 @@ bool NewRpgBaseAction::GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector
         if (bot->GetZoneId() != bot->GetMap()->GetZoneId(bot->GetPhaseMask(), dx, dy, dz))
             continue;
 
-        poiInfo.push_back({{dx, dy}, qPoi.ObjectiveIndex});
+        G3D::Vector2 refined = RefinePoiWithSpawnHints(questId, qPoi.ObjectiveIndex, dx, dy);
+        poiInfo.push_back({refined, qPoi.ObjectiveIndex});
     }
 
     if (poiInfo.size() == 0)
@@ -1090,7 +1254,7 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
         if (bot->GetExactDist(loc) > loRange)
             continue;
 
-        if (!inCity && bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
+        if (!inCity && !forceRelocate && bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
                                                 loc.GetPositionZ()) != bot->GetZoneId())
             continue;
 
@@ -1103,18 +1267,18 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
     WorldPosition dest{};
     if (forceRelocate && !lo_prepared_locs.empty())
     {
-        uint32 bestIdx = 0;
-        float bestDist = bot->GetExactDist(lo_prepared_locs[0]);
-        for (uint32 i = 1; i < lo_prepared_locs.size(); ++i)
+        float bestScore = -FLT_MAX;
+        for (WorldLocation const& loc : lo_prepared_locs)
         {
-            float dist = bot->GetExactDist(lo_prepared_locs[i]);
-            if (dist > bestDist)
+            uint32 zoneId = bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
+                                                     loc.GetPositionZ());
+            float score = ProgressionZoneScorer::ScoreZone(bot, zoneId) + bot->GetExactDist(loc) * 0.02f;
+            if (score > bestScore)
             {
-                bestDist = dist;
-                bestIdx = i;
+                bestScore = score;
+                dest = loc;
             }
         }
-        dest = lo_prepared_locs[bestIdx];
     }
     else if (urand(1, 100) <= 50 && !hi_prepared_locs.empty())
     {
@@ -1319,22 +1483,14 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
             }
             if (availableQuests.size())
             {
-                uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(activeBot);
                 uint32 questId = availableQuests[0];
-                int32 bestLevel = -1;
+                float bestScore = ScoreQuestForWork(questId);
                 for (uint32 id : availableQuests)
                 {
-                    Quest const* candidate = sObjectMgr->GetQuestTemplate(id);
-                    if (!candidate)
-                        continue;
-
-                    int32 questLevel = candidate->GetQuestLevel();
-                    if (questLevel < 0)
-                        questLevel = levelRef;
-
-                    if (questLevel > bestLevel)
+                    float score = ScoreQuestForWork(id);
+                    if (score > bestScore)
                     {
-                        bestLevel = questLevel;
+                        bestScore = score;
                         questId = id;
                     }
                 }
@@ -1540,6 +1696,12 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
 
 bool NewRpgBaseAction::HasLevelAppropriateContentNearby()
 {
+    if (botAI->rpgInfo.GetStatus() == RPG_DO_QUEST)
+    {
+        if (Unit* questTarget = AI_VALUE(Unit*, "quest objective target"))
+            return true;
+    }
+
     if (Unit* target = AI_VALUE(Unit*, "grind target"))
         return true; // GrindTargetValue already applied OW band / quest-needed rules.
 
@@ -1603,6 +1765,9 @@ bool NewRpgBaseAction::TryRelocateForProgressionStagnation()
             return true;
         }
 
+        if (TryProgressionFlightRelocate())
+            return true;
+
         return false;
     }
 
@@ -1614,6 +1779,9 @@ bool NewRpgBaseAction::TryRelocateForProgressionStagnation()
                   bot->GetName(), pos.GetMapId(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
         return true;
     }
+
+    if (TryProgressionFlightRelocate())
+        return true;
 
     sRandomPlayerbotMgr.RandomTeleportForLevel(bot);
     botAI->Reset(true);

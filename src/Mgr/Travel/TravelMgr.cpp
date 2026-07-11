@@ -5,6 +5,7 @@
 
 #include "TravelMgr.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <numeric>
 
@@ -12,6 +13,8 @@
 #include "Creature.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
+#include "ProgressionZoneScorer.h"
+#include "Random.h"
 #include "TravelNode.h"
 #include "Talentspec.h"
 #include "ChatHelper.h"
@@ -4455,8 +4458,7 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
 
     while (!candidateZones.empty())
     {
-        uint32 zoneIndex = urand(0, candidateZones.size() - 1);
-        uint32 pickedZone = candidateZones[zoneIndex];
+        uint32 pickedZone = ProgressionZoneScorer::PickBestZone(bot, candidateZones);
 
         std::vector<uint32> usableNodes = GetFlightNodesInZone(pickedZone, bot->GetTeamId(), fromNode);
 
@@ -4467,11 +4469,13 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
             if (!path.empty())
             {
                 validDestinations.push_back(std::move(path));
+                LOG_DEBUG("playerbots.progression", "Bot {} flight relocate to zone {} node {}", bot->GetName(),
+                          pickedZone, pickedNode);
                 return validDestinations;
             }
         }
 
-        candidateZones.erase(candidateZones.begin() + zoneIndex);
+        candidateZones.erase(std::remove(candidateZones.begin(), candidateZones.end(), pickedZone), candidateZones.end());
     }
 
     return validDestinations;
@@ -4558,6 +4562,17 @@ std::vector<WorldLocation> TravelMgr::GetCityLocations(Player* bot)
         return { locIt->second };
     // Fallback if something went wrong
     return fallbackLocations;
+}
+
+bool TravelMgr::TryGetZoneLevelRange(uint32 zoneId, uint32& low, uint32& high) const
+{
+    auto const it = zone2LevelBracket.find(zoneId);
+    if (it == zone2LevelBracket.end())
+        return false;
+
+    low = it->second.low;
+    high = it->second.high;
+    return true;
 }
 
 void TravelMgr::PrepareZone2LevelBracket()
@@ -4706,6 +4721,9 @@ void TravelMgr::PrepareDestinationCache()
                 creatureTemplate->Entry != 3838 && creatureTemplate->Entry != 29480)
         {
             FactionTemplateEntry const* factionEntry = sFactionTemplateStore.LookupEntry(creatureTemplate->faction);
+            if (!factionEntry)
+                continue;
+
             bool forHorde = !(factionEntry->hostileMask & 4);
             bool forAlliance = !(factionEntry->hostileMask & 2);
 
@@ -4819,6 +4837,9 @@ void TravelMgr::PrepareDestinationCache()
         if (creatureDataList.size() >= 2)
         {
             CreatureTemplate const* creatureTemplate = sObjectMgr->GetCreatureTemplate(creatureDataList[0].id);
+            if (!creatureTemplate)
+                continue;
+
             uint32 level = (creatureTemplate->minlevel + creatureTemplate->maxlevel + 1) / 2;
             for (int32 l = (int32)level - (int32)sPlayerbotAIConfig.randomBotTeleLowerLevel;
                  l <= (int32)level + (int32)sPlayerbotAIConfig.randomBotTeleHigherLevel; l++)

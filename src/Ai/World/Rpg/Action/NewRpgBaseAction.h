@@ -41,8 +41,8 @@ protected:
     bool CanInteractWithQuestGiver(Object* questGiver);
     bool IsWithinInteractionDist(Object* object);
     uint32 BestRewardIndex(Quest const* quest);
-    bool IsQuestWorthDoing(Quest const* quest);
-    bool IsQuestCapableDoing(Quest const* quest);
+    bool IsQuestWorthDoing(Quest const* quest) const;
+    bool IsQuestCapableDoing(Quest const* quest) const;
 
     /* QUEST RELATED ACTION */
     bool SearchQuestGiverAndAcceptOrReward();
@@ -55,7 +55,7 @@ protected:
 
 protected:
     float GetQuestPoiMaxDistance() const;
-    bool GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete = false);
+    bool GetQuestPOIPosAndObjectiveIdx(uint32 questId, std::vector<POIInfo>& poiInfo, bool toComplete = false) const;
     static WorldPosition SelectRandomGrindPos(Player* bot, bool forceRelocate = false);
     static WorldPosition SelectRandomCampPos(Player* bot);
     bool SelectRandomFlightTaxiNode(uint32& flightMasterEntry, WorldPosition& flightMasterPos, std::vector<uint32>& path);
@@ -63,6 +63,10 @@ protected:
     bool CheckRpgStatusAvailable(NewRpgStatus status);
     bool FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInfo) const;
     bool IsBotLedNearbyGroupBot() const;
+    float ScoreQuestForWork(uint32 questId) const;
+    POIInfo SelectBestScoredPOI(std::vector<POIInfo> const& poiInfo, uint32 questId) const;
+    G3D::Vector2 RefinePoiWithSpawnHints(uint32 questId, int32 objectiveIdx, float dx, float dy) const;
+    bool TryProgressionFlightRelocate();
 
 protected:
     /* FOR MOVE FAR */

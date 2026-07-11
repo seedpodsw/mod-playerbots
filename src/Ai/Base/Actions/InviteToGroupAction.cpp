@@ -7,6 +7,7 @@
 
 #include "BroadcastHelper.h"
 #include "Event.h"
+#include "GroupInviteHelper.h"
 #include "GuildMgr.h"
 #include "PlayerbotOperations.h"
 #include "Playerbots.h"
@@ -28,7 +29,16 @@ bool InviteToGroupAction::Invite(Player* inviter, Player* player)
         return false;
 
     // Already grouped or has a pending invite — inviting again would silently fail
-    if (player->GetGroup() || player->GetGroupInvite())
+    if (Group* const playerGroup = player->GetGroup())
+    {
+        Group* const inviterGroup = inviter->GetGroup();
+        if (inviterGroup && playerGroup == inviterGroup && playerGroup->IsMember(inviter->GetGUID()))
+            return false;
+
+        if (!GET_PLAYERBOT_AI(player))
+            return false;
+    }
+    else if (player->GetGroupInvite() && !GET_PLAYERBOT_AI(player))
         return false;
 
     if (Group* group = inviter->GetGroup())
@@ -41,7 +51,7 @@ bool InviteToGroupAction::Invite(Player* inviter, Player* player)
             }
     }
 
-    // Group modifications must run on the world thread
+    // Group modifications must run on the world thread (OnPlayerCanGroupInvite + GroupInviteRequestOperation).
     auto inviteOp = std::make_unique<GroupInviteRequestOperation>(inviter->GetGUID(), player->GetGUID());
     PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(inviteOp));
 
@@ -295,19 +305,29 @@ bool JoinGroupAction::Execute(Event event)
     if (bot->GetGroup())
     {
         if (botAI->HasRealPlayerMaster())
-            return false;
-
-        PlayerbotAI* requesterAI = master ? GET_PLAYERBOT_AI(master) : nullptr;
-        if (master && (!requesterAI || requesterAI->IsRealPlayer()) && sRandomPlayerbotMgr.IsRandomBot(bot) &&
-            sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
         {
-            auto op = std::make_unique<ReleaseFromAmbientGroupOperation>(bot->GetGUID(), master->GetGUID(), true);
-            PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(op));
-            return false;
-        }
+            if (master && GroupInviteHelper::IsBotOwnedByPlayer(bot, master) && bot->GetGroup() != master->GetGroup())
+            {
+                if (!botAI->DoSpecificAction("leave", event, true))
+                    return false;
+            }
 
-        if (!botAI->DoSpecificAction("leave", event, true))
-            return false;
+            if (bot->GetGroup())
+                return false;
+        }
+        else
+        {
+            if (master && GroupInviteHelper::IsRealPlayerInviter(master) && sRandomPlayerbotMgr.IsRandomBot(bot) &&
+                sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+            {
+                auto op = std::make_unique<ReleaseFromAmbientGroupOperation>(bot->GetGUID(), master->GetGUID(), true);
+                PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(op));
+                return false;
+            }
+
+            if (!botAI->DoSpecificAction("leave", event, true))
+                return false;
+        }
     }
 
     return Invite(master, bot);

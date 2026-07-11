@@ -46,6 +46,10 @@ public:
     void ProcessPendingLogoutSaves(uint32 maxCount);
     void OnBotLogin(Player* const bot);
 
+    static void FinishBotLoading(ObjectGuid guid);
+    static uint32 GetBotLoadingCount();
+    static void JoinBotChatChannels(Player* bot);
+
     std::vector<std::string> HandlePlayerbotCommand(char const* args, Player* master = nullptr);
     std::string const ProcessBotCommand(std::string const cmd, ObjectGuid guid, ObjectGuid masterguid, bool admin,
                                         uint32 masterAccountId, uint32 masterGuildId);

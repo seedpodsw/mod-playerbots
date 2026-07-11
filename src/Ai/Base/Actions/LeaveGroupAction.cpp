@@ -6,6 +6,7 @@
 #include "LeaveGroupAction.h"
 
 #include "Event.h"
+#include "GroupInviteHelper.h"
 #include "NewRpgInfo.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotOperations.h"
@@ -20,17 +21,35 @@ namespace
 {
 bool IsRealPlayerCommander(Player* player)
 {
-    if (!player)
-        return false;
-
-    PlayerbotAI* playerAI = GET_PLAYERBOT_AI(player);
-    return !playerAI || playerAI->IsRealPlayer();
+    return player && player->GetSession() && !player->GetSession()->IsBot();
 }
 
 bool QueueReleaseFromAmbientGroup(Player* bot, Player* player, bool sayReady)
 {
     auto op = std::make_unique<ReleaseFromAmbientGroupOperation>(bot->GetGUID(), player->GetGUID(), sayReady);
     return PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(op));
+}
+
+bool RealPlayerCanReleaseBotFromGroup(Player* bot, Player* player, PlayerbotAI* botAI)
+{
+    if (!bot || !player || !botAI || !IsRealPlayerCommander(player))
+        return false;
+
+    if (!bot->GetGroup())
+        return true;
+
+    if (botAI->GetMaster() == player)
+        return true;
+
+    Group* const botGroup = bot->GetGroup();
+    Group* const playerGroup = player->GetGroup();
+    if (playerGroup && botGroup == playerGroup)
+        return false;
+
+    if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        return true;
+
+    return GroupInviteHelper::IsBotOwnedByPlayer(bot, player);
 }
 }  // namespace
 
@@ -40,10 +59,7 @@ bool LeaveGroupAction::Execute(Event event)
     if (player == botAI->GetMaster())
         return Leave();
 
-    // Real players can pull random bots out of ambient nearby groups (not player alts).
-    if (player && sRandomPlayerbotMgr.IsRandomBot(bot) && bot->GetGroup() &&
-        sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()) && IsRealPlayerCommander(player) &&
-        botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, player))
+    if (player && RealPlayerCanReleaseBotFromGroup(bot, player, botAI))
         return QueueReleaseFromAmbientGroup(bot, player, false);
 
     return false;
@@ -122,14 +138,19 @@ bool LeaveGroupAction::Leave(bool leftForProgression)
     if (leftForProgression && resumeSoloRpg && bot->GetGroup())
         leaderGuid = bot->GetGroup()->GetLeaderGUID();
 
-    Player* master = botAI -> GetMaster();
+    Player* master = botAI->GetMaster();
     if (master)
         botAI->TellMaster(
             PlayerbotTextMgr::instance().GetBotTextOrDefault("goodbye", "Goodbye!", {}),
             PLAYERBOT_SECURITY_TALK);
 
     botAI->rpgInfo.ChangeToIdle();
-    botAI->LeaveOrDisbandGroup();
+
+    if (Group* group = bot->GetGroup())
+        Player::RemoveFromGroup(group, bot->GetGUID(), GROUP_REMOVEMETHOD_LEAVE);
+
+    if (bot->GetOriginalGroup())
+        bot->SetOriginalGroup(nullptr);
 
     if (leftForProgression && leaderGuid)
         botAI->MarkAmbientGroupLeftForProgression(leaderGuid);
@@ -265,7 +286,7 @@ bool ReadyForInviteAction::Execute(Event event)
     if (!player || !IsRealPlayerCommander(player))
         return false;
 
-    if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, player))
+    if (!RealPlayerCanReleaseBotFromGroup(bot, player, botAI))
         return false;
 
     return QueueReleaseFromAmbientGroup(bot, player, true);
@@ -291,8 +312,14 @@ bool DropGroupAction::Execute(Event event)
     if (!player || !IsRealPlayerCommander(player))
         return false;
 
-    if (!botAI->GetSecurity()->CheckLevelFor(PLAYERBOT_SECURITY_INVITE, false, player))
+    if (!RealPlayerCanReleaseBotFromGroup(bot, player, botAI))
         return false;
 
     return QueueReleaseFromAmbientGroup(bot, player, false);
+}
+
+bool GroupDisbandedAction::Execute(Event /*event*/)
+{
+    GroupInviteHelper::ResetBotAfterGroupDisband(bot);
+    return true;
 }

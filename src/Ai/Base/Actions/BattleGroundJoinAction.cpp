@@ -90,9 +90,14 @@ bool ShouldDeferOpenWorldPvpBgQueue(Player* bot, PlayerbotAI* botAI)
 
 bool BGJoinAction::Execute(Event /*event*/)
 {
-    // Defensive fallback: ambient nearby groups must not queue BG (strategy gated in AiFactory).
-    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+    if (sRandomPlayerbotMgr.IsNearbyGroupBgMember(bot))
         return false;
+
+    if (Group* group = bot->GetGroup(); group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group))
+    {
+        botAI->LeaveOrDisbandGroup();
+        return false;
+    }
 
     uint32 queueType = AI_VALUE(uint32, "bg type");
     if (!queueType)  // force join to fill bg
@@ -306,7 +311,7 @@ bool BGJoinAction::canJoinBg(BattlegroundQueueTypeId queueTypeId, BattlegroundBr
 
 bool BGJoinAction::shouldJoinBg(BattlegroundQueueTypeId queueTypeId, BattlegroundBracketId bracketId)
 {
-    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+    if (sRandomPlayerbotMgr.IsNearbyGroupBgMember(bot))
         return false;
 
     if (ShouldDeferOpenWorldPvpBgQueue(bot, botAI))
@@ -419,7 +424,7 @@ bool BGJoinAction::isUseful()
     if (GET_PLAYERBOT_AI(bot)->HasActivePlayerMaster())
         return false;
 
-    if (sRandomPlayerbotMgr.IsBotLedNearbyGroup(bot->GetGroup()))
+    if (sRandomPlayerbotMgr.IsNearbyGroupBgMember(bot))
         return false;
 
     if (ShouldDeferOpenWorldPvpBgQueue(bot, botAI))

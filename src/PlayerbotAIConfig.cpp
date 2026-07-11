@@ -263,6 +263,10 @@ bool PlayerbotAIConfig::Initialize()
         sConfigMgr->GetOption<int32>("AiPlayerbot.PermanentlyInWorldTime", 1 * YEAR);
     randomBotTeleportDistance = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotTeleportDistance", 100);
     randomBotsPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotsPerInterval", 60);
+    maxConcurrentBotLogins = sConfigMgr->GetOption<int32>("AiPlayerbot.MaxConcurrentBotLogins", 50);
+    maxConcurrentBotLoginsInit = sConfigMgr->GetOption<int32>("AiPlayerbot.MaxConcurrentBotLoginsInit", 5);
+    resetRandomBotLoginStateOnStartup =
+        sConfigMgr->GetOption<bool>("AiPlayerbot.ResetRandomBotLoginStateOnStartup", false);
     randomBotEventPersistInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotEventPersistInterval", 60);
     randomBotLogoutSavesPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotLogoutSavesPerInterval", 8);
     randomBotRepositoryDirtyOnly = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotRepositoryDirtyOnly", true);
@@ -383,7 +387,7 @@ bool PlayerbotAIConfig::Initialize()
     randomBotJoinBG = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotJoinBG", true);
     randomBotAutoJoinBG = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotAutoJoinBG", true);
     randomBotAutoJoinMinOnlineRatio =
-        sConfigMgr->GetOption<float>("AiPlayerbot.RandomBotAutoJoinMinOnlineRatio", 0.5f);
+        sConfigMgr->GetOption<float>("AiPlayerbot.RandomBotAutoJoinMinOnlineRatio", 0.25f);
 
     randomBotAutoJoinArenaBracket = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinArenaBracket", 14);
 
@@ -391,15 +395,15 @@ bool PlayerbotAIConfig::Initialize()
         sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinWSBrackets", "0,1,2,3,4,5,6,7");
     randomBotAutoJoinABBrackets =
         sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinABBrackets", "0,1,2,3,4,5,6");
-    randomBotAutoJoinAVBrackets = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinAVBrackets", "3");
-    randomBotAutoJoinEYBrackets = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinEYBrackets", "2");
-    randomBotAutoJoinICBrackets = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinICBrackets", "1");
+    randomBotAutoJoinAVBrackets = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinAVBrackets", "0,1,2,3");
+    randomBotAutoJoinEYBrackets = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinEYBrackets", "0,1,2");
+    randomBotAutoJoinICBrackets = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotAutoJoinICBrackets", "0,1");
 
-    randomBotAutoJoinBGWSCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGWSCount", 1);
-    randomBotAutoJoinBGABCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGABCount", 1);
-    randomBotAutoJoinBGAVCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGAVCount", 0);
-    randomBotAutoJoinBGEYCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGEYCount", 1);
-    randomBotAutoJoinBGICCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGICCount", 0);
+    randomBotAutoJoinBGWSCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGWSCount", 2);
+    randomBotAutoJoinBGABCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGABCount", 2);
+    randomBotAutoJoinBGAVCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGAVCount", 2);
+    randomBotAutoJoinBGEYCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGEYCount", 2);
+    randomBotAutoJoinBGICCount = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGICCount", 2);
 
     randomBotAutoJoinBGRatedArena2v2Count =
         sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotAutoJoinBGRatedArena2v2Count", 0);
@@ -704,6 +708,18 @@ bool PlayerbotAIConfig::Initialize()
     autoTeleportForLevel = sConfigMgr->GetOption<bool>("AiPlayerbot.AutoTeleportForLevel", false);
     autoDoQuests = sConfigMgr->GetOption<bool>("AiPlayerbot.AutoDoQuests", true);
     enableNewRpgStrategy = sConfigMgr->GetOption<bool>("AiPlayerbot.EnableNewRpgStrategy", true);
+
+    questPoiMaxDistance = sConfigMgr->GetOption<float>("AiPlayerbot.QuestPoiMaxDistance", 1500.0f);
+    questPoiMaxDistanceLowLevel = sConfigMgr->GetOption<float>("AiPlayerbot.QuestPoiMaxDistanceLowLevel", 3500.0f);
+    questObjectivePreferKillWeight = sConfigMgr->GetOption<float>("AiPlayerbot.QuestObjectivePreferKillWeight", 50.0f);
+    questObjectivePreferCollectWeight = sConfigMgr->GetOption<float>("AiPlayerbot.QuestObjectivePreferCollectWeight", 20.0f);
+    zoneScoreLevelFitWeight = sConfigMgr->GetOption<float>("AiPlayerbot.ZoneScoreLevelFitWeight", 1.0f);
+    zoneScoreQuestWeight = sConfigMgr->GetOption<float>("AiPlayerbot.ZoneScoreQuestWeight", 1.0f);
+    zoneScoreGrindWeight = sConfigMgr->GetOption<float>("AiPlayerbot.ZoneScoreGrindWeight", 0.5f);
+    zoneScoreBotDensityPenalty = sConfigMgr->GetOption<float>("AiPlayerbot.ZoneScoreBotDensityPenalty", 8.0f);
+    zoneBotCensusRefreshSeconds = sConfigMgr->GetOption<uint32>("AiPlayerbot.ZoneBotCensusRefreshSeconds", 300);
+    stagnationRelocateSeconds = sConfigMgr->GetOption<uint32>("AiPlayerbot.StagnationRelocateSeconds", 120);
+    needRelocatePreferFlight = sConfigMgr->GetOption<bool>("AiPlayerbot.NeedRelocatePreferFlight", true);
 
     RpgStatusProbWeight[RPG_WANDER_RANDOM] = sConfigMgr->GetOption<int32>("AiPlayerbot.RpgStatusProbWeight.WanderRandom", 15);
     RpgStatusProbWeight[RPG_WANDER_NPC] = sConfigMgr->GetOption<int32>("AiPlayerbot.RpgStatusProbWeight.WanderNpc", 20);

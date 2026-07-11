@@ -88,6 +88,15 @@ AiPlayerbot.RandomBotAutologin = 1
 AiPlayerbot.MinRandomBots = 300
 AiPlayerbot.MaxRandomBots = 300
 
+# Max concurrent bot logins (limits async DB login + OnBotLogin work in flight)
+# During the initial login wave after startup, MaxConcurrentBotLoginsInit applies.
+AiPlayerbot.MaxConcurrentBotLogins = 50
+AiPlayerbot.MaxConcurrentBotLoginsInit = 5
+
+# Reset persisted random-bot "add" events on startup (forces full re-login wave)
+# Default 0 keeps login state across restarts for faster, staggered recovery.
+AiPlayerbot.ResetRandomBotLoginStateOnStartup = 0
+
 # Randombot accounts
 # Set to 0 to automatically calculate needed accounts based on MaxRandomBots, EnablePeriodicOnlineOffline
 # and its ratio, and AddClassAccountPoolSize. Set manually if you want to create more accounts than needed.
@@ -1084,6 +1093,23 @@ AiPlayerbot.RestrictedHealerDPSMaps = "33,34,36,43,47,48,70,90,109,129,209,229,2
 # Default: 1 (enabled)
 AiPlayerbot.EnableNewRpgStrategy = 1
 
+# Quest POI and objective targeting (New RPG)
+AiPlayerbot.QuestPoiMaxDistance = 1500
+AiPlayerbot.QuestPoiMaxDistanceLowLevel = 3500
+AiPlayerbot.QuestObjectivePreferKillWeight = 50
+AiPlayerbot.QuestObjectivePreferCollectWeight = 20
+
+# Progression zone scoring (soft anti-clumping + level fit)
+AiPlayerbot.ZoneScoreLevelFitWeight = 1.0
+AiPlayerbot.ZoneScoreQuestWeight = 1.0
+AiPlayerbot.ZoneScoreGrindWeight = 0.5
+AiPlayerbot.ZoneScoreBotDensityPenalty = 8.0
+AiPlayerbot.ZoneBotCensusRefreshSeconds = 300
+
+# Need-driven relocation when bots stagnate (seconds before relocate attempt)
+AiPlayerbot.StagnationRelocateSeconds = 120
+AiPlayerbot.NeedRelocatePreferFlight = 1
+
 # Control probability weights for RPG status of bots. Takes effect only when the status meets its premise.​
 # Sum of weights need not be 100. Set to 0 to disable the status.
 #
@@ -1301,8 +1327,8 @@ AiPlayerbot.AutoTeleportForLevel = 1
 # How these work together on a PvP realm (random bots only; alt bots unchanged):
 # - RandomBotOpenWorldPvp (see GROUPING section): faction PvP in hostile/contested zones for solo
 #   bots and nearby-group leaders; members assist via dps assist only.
-# - RandomBotJoinBG / RandomBotAutoJoinBG: honor BGs for solo and ungrouped bots only — bots in an
-#   ambient RandomBotGroupNearby party do not receive the bg strategy and will not queue.
+# - RandomBotJoinBG / RandomBotAutoJoinBG: honor BGs for solo bots and nearby-group leaders;
+#   ambient party members do not receive the bg strategy and will not queue.
 # - RandomBotAutoJoinMinOnlineRatio: fraction of allowed random bots that must be online before
 #   auto-join opens queues; lower (e.g. 0.3) if periodic login rotation keeps auto-fill idle.
 # - Real players queuing a BG still pull bots in via shouldJoinBg fill logic when slots are needed.
@@ -1314,8 +1340,8 @@ AiPlayerbot.RandomBotJoinBG = 1
 AiPlayerbot.RandomBotAutoJoinBG = 1
 
 # Minimum fraction of allowed randombots that must be online before auto-join opens queues.
-# Lower this when EnablePeriodicOnlineOffline rotates bots off (default: 0.5 = 50%).
-AiPlayerbot.RandomBotAutoJoinMinOnlineRatio = 0.5
+# Lower this when EnablePeriodicOnlineOffline rotates bots off (default: 0.25 = 25%).
+AiPlayerbot.RandomBotAutoJoinMinOnlineRatio = 0.25
 
 # Required Configuration for RandomBotAutoJoinBG
 #
@@ -1350,19 +1376,20 @@ AiPlayerbot.RandomBotAutoJoinMinOnlineRatio = 0.5
 # AiPlayerbot.RandomBotAutoJoinAVBrackets = 0,1,2,3
 # AiPlayerbot.RandomBotAutoJoinEYBrackets = 0,1,2
 # AiPlayerbot.RandomBotAutoJoinICBrackets = 0,1
+# Bracket lists are informational; code opens all brackets up to the *Count cap per BG.
 AiPlayerbot.RandomBotAutoJoinWSBrackets = 0,1,2,3,4,5,6,7
 AiPlayerbot.RandomBotAutoJoinABBrackets = 0,1,2,3,4,5,6
-AiPlayerbot.RandomBotAutoJoinAVBrackets = 3
-AiPlayerbot.RandomBotAutoJoinEYBrackets = 2
-AiPlayerbot.RandomBotAutoJoinICBrackets = 1
+AiPlayerbot.RandomBotAutoJoinAVBrackets = 0,1,2,3
+AiPlayerbot.RandomBotAutoJoinEYBrackets = 0,1,2
+AiPlayerbot.RandomBotAutoJoinICBrackets = 0,1
 
 # Battlegrounds battles count (max concurrent bot-started instances per bracket):
-# Keep these low (1-2). Higher values recreate the "140 bots in one WSG bracket" problem.
-AiPlayerbot.RandomBotAutoJoinBGWSCount = 1
-AiPlayerbot.RandomBotAutoJoinBGABCount = 1
-AiPlayerbot.RandomBotAutoJoinBGAVCount = 0
-AiPlayerbot.RandomBotAutoJoinBGEYCount = 1
-AiPlayerbot.RandomBotAutoJoinBGICCount = 0
+# Code opens every bracket under this cap; only bots at matching levels join.
+AiPlayerbot.RandomBotAutoJoinBGWSCount = 2
+AiPlayerbot.RandomBotAutoJoinBGABCount = 2
+AiPlayerbot.RandomBotAutoJoinBGAVCount = 2
+AiPlayerbot.RandomBotAutoJoinBGEYCount = 2
+AiPlayerbot.RandomBotAutoJoinBGICCount = 2
 
 # Arena bracket (single bracket only):
 # Custom code changes are required for lower-level arena brackets to function properly.

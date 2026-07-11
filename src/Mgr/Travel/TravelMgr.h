@@ -948,6 +948,8 @@ public:
 
     void logQuestError(uint32 errorNr, Quest* quest, uint32 objective = 0, uint32 unitId = 0, uint32 itemId = 0);
 
+    bool TryGetZoneLevelRange(uint32 zoneId, uint32& low, uint32& high) const;
+
     std::vector<uint32> avoidLoaded;
 
     std::vector<QuestTravelDestination*> questGivers;

@@ -83,4 +83,12 @@ public:
     bool Execute(Event event) override;
 };
 
+class GroupDisbandedAction : public Action
+{
+public:
+    GroupDisbandedAction(PlayerbotAI* botAI) : Action(botAI, "group disbanded") {}
+
+    bool Execute(Event event) override;
+};
+
 #endif
