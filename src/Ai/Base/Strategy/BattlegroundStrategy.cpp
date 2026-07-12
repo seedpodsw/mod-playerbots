@@ -11,7 +11,8 @@ void BGStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("often", { NextAction("bg join", relevance)}));
     triggers.push_back(new TriggerNode("bg invite active", { NextAction("bg status check", relevance)}));
-    triggers.push_back(new TriggerNode("timer", { NextAction("bg strategy check", relevance)}));
+    triggers.push_back(new TriggerNode("timer", { NextAction("bg status check", relevance),
+                                                  NextAction("bg strategy check", relevance)}));
 }
 
 BGStrategy::BGStrategy(PlayerbotAI* botAI) : PassThroughStrategy(botAI) {}

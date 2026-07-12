@@ -26,32 +26,7 @@ bool UseMeetingStoneAction::Execute(Event event)
     ObjectGuid guid;
     p >> guid;
 
-    if (master->GetTarget() && master->GetTarget() != bot->GetGUID())
-        return false;
-
-    if (!master->GetTarget() && master->GetGroup() != bot->GetGroup())
-        return false;
-
-    if (master->IsBeingTeleported())
-        return false;
-
-    if (bot->IsInCombat())
-    {
-        botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-            "meeting_stone_in_combat", "I am in combat", {}));
-        return false;
-    }
-
-    Map* map = master->GetMap();
-    if (!map)
-        return false;
-
-    GameObject* gameObject = map->GetGameObject(guid);
-    if (!gameObject)
-        return false;
-
-    GameObjectTemplate const* goInfo = gameObject->GetGOInfo();
-    if (!goInfo || goInfo->entry != 179944)
+    if (guid != bot->GetGUID())
         return false;
 
     return Teleport(master, bot, false);
@@ -59,7 +34,9 @@ bool UseMeetingStoneAction::Execute(Event event)
 
 bool SummonAction::Execute(Event /*event*/)
 {
-    Player* master = GetMaster();
+    Player* master = botAI->GetValidMaster();
+    if (!master)
+        master = GetMaster();
     if (!master)
         return false;
 
@@ -163,7 +140,6 @@ bool SummonAction::SummonUsingNpcs(Player* summoner, Player* player, bool preser
 
 bool SummonAction::Teleport(Player* summoner, Player* player, bool preserveAuras)
 {
-    // Player* master = GetMaster();
     if (!summoner || summoner == player)
         return false;
 
@@ -174,89 +150,104 @@ bool SummonAction::Teleport(Player* summoner, Player* player, bool preserveAuras
         return false;
     }
 
-    if (!summoner->IsBeingTeleported() && !player->IsBeingTeleported())
+    if (summoner->IsBeingTeleported() || player->IsBeingTeleported())
     {
-        float followAngle = GetFollowAngle();
-        for (float angle = followAngle - M_PI; angle <= followAngle + M_PI; angle += M_PI / 4)
+        botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "meeting_stone_not_enough_space", "Not enough place to summon", {}));
+        return false;
+    }
+
+    auto tryTeleportNearSummoner = [&](uint32 mapId, float x, float y, float z) -> bool
+    {
+        if (summoner->IsInCombat() && !sPlayerbotAIConfig.allowSummonInCombat)
         {
-            uint32 mapId = summoner->GetMapId();
-            float x = summoner->GetPositionX() + cos(angle) * sPlayerbotAIConfig.followDistance;
-            float y = summoner->GetPositionY() + sin(angle) * sPlayerbotAIConfig.followDistance;
-            float z = summoner->GetPositionZ();
-
-            if (summoner->IsWithinLOS(x, y, z))
-            {
-                if (sPlayerbotAIConfig.botRepairWhenSummon)  // .conf option to repair bot gear when summoned 0 = off, 1 = on
-                    bot->DurabilityRepairAll(false, 1.0f, false);
-
-                if (summoner->IsInCombat() && !sPlayerbotAIConfig.allowSummonInCombat)
-                {
-                    botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "meeting_stone_cannot_summon_master_in_combat",
-                        "You cannot summon me while you're in combat",
-                        {}));
-                    return false;
-                }
-
-                if (!summoner->IsAlive() && !sPlayerbotAIConfig.allowSummonWhenMasterIsDead)
-                {
-                    botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "meeting_stone_cannot_summon_master_dead",
-                        "You cannot summon me while you're dead",
-                        {}));
-                    return false;
-                }
-
-                if (bot->isDead() && !bot->HasPlayerFlag(PLAYER_FLAGS_GHOST) &&
-                    !sPlayerbotAIConfig.allowSummonWhenBotIsDead)
-                {
-                    botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "meeting_stone_cannot_summon_bot_dead",
-                        "You cannot summon me while I'm dead, you need to release my spirit first",
-                        {}));
-                    return false;
-                }
-
-                bool revive =
-                    sPlayerbotAIConfig.reviveBotWhenSummoned == 2 ||
-                    (sPlayerbotAIConfig.reviveBotWhenSummoned == 1 && !summoner->IsInCombat() && summoner->IsAlive());
-
-                if (bot->isDead() && revive)
-                {
-                    bot->ResurrectPlayer(1.0f, false);
-                    bot->SpawnCorpseBones();
-                    botAI->TellMasterNoFacing(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "meeting_stone_revived", "I live, again!", {}));
-                    botAI->GetAiObjectContext()->GetValue<GuidVector>("prioritized targets")->Reset();
-                }
-
-                player->GetMotionMaster()->Clear();
-                AI_VALUE(LastMovement&, "last movement").clear();
-
-                if (!preserveAuras)
-                    player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_TELEPORTED |
-                                                          AURA_INTERRUPT_FLAG_CHANGE_MAP);
-                player->TeleportTo(mapId, x, y, z, 0);
-                if (player->GetPet())
-                    player->GetPet()->NearTeleportTo(x, y, z, player->GetOrientation());
-                if (player->GetGuardianPet())
-                    player->GetGuardianPet()->NearTeleportTo(x, y, z, player->GetOrientation());
-                if (botAI->HasStrategy("stay", botAI->GetState()))
-                {
-                    PositionMap& posMap = AI_VALUE(PositionMap&, "position");
-                    PositionInfo stayPosition = posMap["stay"];
-
-                    stayPosition.Set(x,y, z, mapId);
-                    posMap["stay"] = stayPosition;
-                }
-
-                return true;
-            }
+            botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "meeting_stone_cannot_summon_master_in_combat",
+                "You cannot summon me while you're in combat",
+                {}));
+            return false;
         }
+
+        if (!summoner->IsAlive() && !sPlayerbotAIConfig.allowSummonWhenMasterIsDead)
+        {
+            botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "meeting_stone_cannot_summon_master_dead",
+                "You cannot summon me while you're dead",
+                {}));
+            return false;
+        }
+
+        if (bot->isDead() && !bot->HasPlayerFlag(PLAYER_FLAGS_GHOST) &&
+            !sPlayerbotAIConfig.allowSummonWhenBotIsDead)
+        {
+            botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "meeting_stone_cannot_summon_bot_dead",
+                "You cannot summon me while I'm dead, you need to release my spirit first",
+                {}));
+            return false;
+        }
+
+        bool revive =
+            sPlayerbotAIConfig.reviveBotWhenSummoned == 2 ||
+            (sPlayerbotAIConfig.reviveBotWhenSummoned == 1 && !summoner->IsInCombat() && summoner->IsAlive());
+
+        if (bot->isDead() && revive)
+        {
+            bot->ResurrectPlayer(1.0f, false);
+            bot->SpawnCorpseBones();
+            botAI->TellMasterNoFacing(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "meeting_stone_revived", "I live, again!", {}));
+            botAI->GetAiObjectContext()->GetValue<GuidVector>("prioritized targets")->Reset();
+        }
+
+        if (sPlayerbotAIConfig.botRepairWhenSummon)
+            bot->DurabilityRepairAll(false, 1.0f, false);
+
+        player->GetMotionMaster()->Clear();
+        AI_VALUE(LastMovement&, "last movement").clear();
+
+        if (!preserveAuras)
+            player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_TELEPORTED |
+                                                  AURA_INTERRUPT_FLAG_CHANGE_MAP);
+        player->TeleportTo(mapId, x, y, z, 0);
+        if (player->GetPet())
+            player->GetPet()->NearTeleportTo(x, y, z, player->GetOrientation());
+        if (player->GetGuardianPet())
+            player->GetGuardianPet()->NearTeleportTo(x, y, z, player->GetOrientation());
+        if (botAI->HasStrategy("stay", botAI->GetState()))
+        {
+            PositionMap& posMap = AI_VALUE(PositionMap&, "position");
+            PositionInfo stayPosition = posMap["stay"];
+
+            stayPosition.Set(x, y, z, mapId);
+            posMap["stay"] = stayPosition;
+        }
+
+        return true;
+    };
+
+    uint32 const mapId = summoner->GetMapId();
+    if (player->GetMapId() != mapId)
+    {
+        float const x = summoner->GetPositionX() + cos(GetFollowAngle()) * sPlayerbotAIConfig.followDistance;
+        float const y = summoner->GetPositionY() + sin(GetFollowAngle()) * sPlayerbotAIConfig.followDistance;
+        float const z = summoner->GetPositionZ();
+        return tryTeleportNearSummoner(mapId, x, y, z);
+    }
+
+    float followAngle = GetFollowAngle();
+    for (float angle = followAngle - M_PI; angle <= followAngle + M_PI; angle += M_PI / 4)
+    {
+        float x = summoner->GetPositionX() + cos(angle) * sPlayerbotAIConfig.followDistance;
+        float y = summoner->GetPositionY() + sin(angle) * sPlayerbotAIConfig.followDistance;
+        float z = summoner->GetPositionZ();
+
+        if (summoner->IsWithinLOS(x, y, z))
+            return tryTeleportNearSummoner(mapId, x, y, z);
     }
 
     if (summoner != player)
-         botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-             "meeting_stone_not_enough_space", "Not enough place to summon", {}));
+        botAI->TellError(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "meeting_stone_not_enough_space", "Not enough place to summon", {}));
     return false;
 }

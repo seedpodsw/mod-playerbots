@@ -278,11 +278,19 @@ Player* PlayerbotAI::GetValidMaster()
     }
 
     Player* resolved = ObjectAccessor::FindConnectedPlayer(masterGuid);
-    if (!resolved || !resolved->GetSession() || !resolved->IsInWorld() ||
-        resolved->IsDuringRemoveFromWorld() || resolved->IsBeingTeleported())
+    if (!resolved || !resolved->GetSession())
     {
+        // Master logged out / disconnected — drop the link permanently.
         master = nullptr;
         masterGuid = ObjectGuid::Empty;
+        return nullptr;
+    }
+
+    // Teleport / map transfer is transient. Keep masterGuid so bots do not lose their
+    // player master (and stop answering summon/follow) across continent loads.
+    if (!resolved->IsInWorld() || resolved->IsDuringRemoveFromWorld() || resolved->IsBeingTeleported())
+    {
+        master = nullptr;
         return nullptr;
     }
 
@@ -494,6 +502,11 @@ void PlayerbotAI::UpdateAIGroupMaster()
 
     if (!validMaster || (masterBotAI && !masterBotAI->IsRealPlayer()))
     {
+        // masterGuid still set means the real master is only temporarily unavailable
+        // (continent transfer / worldport). Do not steal the bot onto another leader.
+        if (masterGuid && !validMaster)
+            return;
+
         Player* newMaster = FindNewMaster();
         // Only act on an actual change — with a bot master FindNewMaster can now return the
         // same leader every tick, and re-applying it would reset strategies in a loop.
@@ -891,11 +904,19 @@ void PlayerbotAI::HandleTeleportAck()
     if (bot->IsBeingTeleportedNear())
     {
         if (!bot->IsInWorld())
+        {
+            // Near semaphore with no world presence cannot complete via MSG_MOVE_TELEPORT_ACK.
+            // Clear it so UpdateSessions can flush queued packets (BG port, etc.) again.
+            bot->SetSemaphoreTeleportNear(0);
             return;
+        }
 
         Player* plMover = bot->m_mover ? bot->m_mover->ToPlayer() : nullptr;
         if (!plMover)
+        {
+            bot->SetSemaphoreTeleportNear(0);
             return;
+        }
 
         WorldPacket p(MSG_MOVE_TELEPORT_ACK, 20);
         p << plMover->GetPackGUID();

@@ -242,18 +242,18 @@ void PlayerbotHolder::UpdateSessions()
     for (PlayerBotMap::const_iterator itr = GetPlayerBotsBegin(); itr != GetPlayerBotsEnd(); ++itr)
     {
         Player* const bot = itr->second;
-        if (bot->IsBeingTeleported())
-        {
-            PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
-            if (botAI)
-            {
-                botAI->HandleTeleportAck();
-            }
-        }
-        else if (bot->IsInWorld())
-        {
+        if (!bot || !bot->GetSession())
+            continue;
+
+        PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+
+        // Complete pending worldports first. Do not skip packet flush when ACK leaves the
+        // bot still in-world (or when a stuck near-teleport blocked BG port accepts).
+        if (bot->IsBeingTeleported() && botAI)
+            botAI->HandleTeleportAck();
+
+        if (!bot->IsBeingTeleported() && bot->IsInWorld())
             HandleBotPackets(bot->GetSession());
-        }
     }
 }
 
@@ -1863,8 +1863,17 @@ PlayerbotAI* PlayerbotsMgr::GetPlayerbotAI(Player* player)
     {
         return nullptr;
     }
-    if (!player->IsInWorld() || player->GetSession()->isLogingOut() || player->IsDuringRemoveFromWorld())
+    if (!player->GetSession() || player->GetSession()->isLogingOut())
         return nullptr;
+
+    // Far teleports remove the bot from the world before the client ACK. UpdateSessions must
+    // still resolve AI so HandleTeleportAck / HandleMoveWorldportAck can finish the transfer.
+    // Block only when the bot is truly unavailable (not mid-teleport).
+    if (player->IsDuringRemoveFromWorld() && !player->IsBeingTeleported())
+        return nullptr;
+    if (!player->IsInWorld() && !player->IsBeingTeleported())
+        return nullptr;
+
     auto itr = _playerbotsAIMap.find(player->GetGUID());
     if (itr != _playerbotsAIMap.end())
     {

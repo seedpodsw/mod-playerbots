@@ -9,6 +9,7 @@
 #include "Group.h"
 #include "GroupMgr.h"
 #include "GuildMgr.h"
+#include "BattlegroundMgr.h"
 #include "Opcodes.h"
 #include "Playerbots.h"
 #include "ObjectAccessor.h"
@@ -19,6 +20,7 @@
 #include "PlayerbotMgr.h"
 #include "PlayerbotRepository.h"
 #include "PlayerbotTextMgr.h"
+#include "PositionValue.h"
 #include "RandomPlayerbotMgr.h"
 #include "UseMeetingStoneAction.h"
 #include "WorldSession.h"
@@ -84,7 +86,9 @@ public:
         if (group->AddMember(target))
         {
             LOG_DEBUG("playerbots", "GroupInviteOperation: Successfully added {} to group", target->GetName());
-            if (sPlayerbotAIConfig.summonWhenGroup && target->GetDistance(bot) > sPlayerbotAIConfig.sightDistance)
+            bool const needSummon = target->GetMapId() != bot->GetMapId() ||
+                                    target->GetDistance(bot) > sPlayerbotAIConfig.sightDistance;
+            if (sPlayerbotAIConfig.summonWhenGroup && needSummon)
             {
                 PlayerbotAI* targetAI = sPlayerbotsMgr.GetPlayerbotAI(target);
                 if (targetAI)
@@ -242,13 +246,29 @@ public:
         if (sRandomPlayerbotMgr.IsRandomBot(bot))
             botAI->SetMaster(inviter);
 
+        // Drop BG/LFG queue so auto-fill cannot yank the bot away from the player.
+        if (bot->InBattlegroundQueue())
+        {
+            for (uint8 i = 0; i < PLAYER_MAX_BATTLEGROUND_QUEUES; ++i)
+            {
+                BattlegroundQueueTypeId queueTypeId = bot->GetBattlegroundQueueTypeId(i);
+                if (queueTypeId == BATTLEGROUND_QUEUE_NONE)
+                    continue;
+
+                sBattlegroundMgr->GetBattlegroundQueue(queueTypeId).RemovePlayer(bot->GetGUID(), true);
+                bot->RemoveBattlegroundQueueId(queueTypeId);
+            }
+        }
+
         botAI->ResetStrategies();
         botAI->ChangeStrategy("+follow,-lfg,-bg", BOT_STATE_NON_COMBAT);
         botAI->Reset();
 
         botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault("hello", "Hello", {}));
 
-        if (sPlayerbotAIConfig.summonWhenGroup && bot->GetDistance(inviter) > sPlayerbotAIConfig.sightDistance)
+        bool const needSummon = bot->GetMapId() != inviter->GetMapId() ||
+                                bot->GetDistance(inviter) > sPlayerbotAIConfig.sightDistance;
+        if (sPlayerbotAIConfig.summonWhenGroup && needSummon)
         {
             SummonAction summonAction(botAI, "group summon");
             summonAction.Teleport(inviter, bot, true);

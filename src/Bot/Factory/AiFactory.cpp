@@ -666,7 +666,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             else
                 nonCombatEngine->addStrategy("move random", false);
 
-            if (sPlayerbotAIConfig.randomBotJoinBG && !inNearbyGroup)
+            // Solo bots and nearby-group leaders may queue BG; nearby members stay on follow/group.
+            if (sPlayerbotAIConfig.randomBotJoinBG && !isNearbyGroupMember)
                 nonCombatEngine->addStrategy("bg", false);
 
             // if (!master || GET_PLAYERBOT_AI(master))
@@ -727,6 +728,11 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                             ApplyNearbyGroupMovementTuning(facade, nonCombatEngine, false, true);
                             if (openWorldPvp)
                                 nonCombatEngine->removeStrategy("pvp", false);
+                        }
+                        else if (!masterBotAI)
+                        {
+                            // Real player is master: use player companion strategies (follow/commands).
+                            nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.nonCombatStrategies);
                         }
                         else
                             nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
