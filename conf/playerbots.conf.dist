@@ -904,6 +904,8 @@ AiPlayerbot.ExcludedHunterPetFamilies = ""
 # - The real number of active bots will always be higher than this value, because bots in
 #   combat, dungeons, battlegrounds, LFG queue, groups with real players, etc. are always
 #   forced active on top of this (see force rules below).
+# - This fork defaults to 100 so random bots keep leveling independently without waiting
+#   for a real player. Lower it if worldserver CPU is too high.
 # - Set to 100 (with SmartScale off) = all bots always active. Maximum server load.
 # - Set to 0 = only bots that match a force rule below will be active.
 #
@@ -914,7 +916,7 @@ AiPlayerbot.ExcludedHunterPetFamilies = ""
 #   rotation happens, it stays active until those conditions end — it won't be cut off
 #   mid-fight just because its turn expired.
 #
-AiPlayerbot.BotActiveAlone = 60
+AiPlayerbot.BotActiveAlone = 100
 AiPlayerbot.BotActiveAloneDurationSeconds = 45
 
 # Force-active rules (1 = on, 0 = off)
@@ -922,6 +924,8 @@ AiPlayerbot.BotActiveAloneDurationSeconds = 45
 #
 # InRadius  - A real player is within this many yards (set to 0 to disable).
 # InZone    - A real player is in the same zone (e.g. Elwynn Forest).
+#             Off by default here: zone-wide force wakes every bot in the zone when you
+#             enter (e.g. Barrens inn dump). Prefer InRadius for "bots feel alive nearby."
 # InMap     - A real player is on the same continent (e.g. Eastern Kingdoms).
 # IsFriend  - A real player has this bot on their friends list.
 # InGuild   - This bot is in a guild that has a real player in it.
@@ -931,7 +935,7 @@ AiPlayerbot.BotActiveAloneDurationSeconds = 45
 #   grouped with a real player, or controlled by a real player.
 #
 AiPlayerbot.BotActiveAloneForceWhenInRadius = 200
-AiPlayerbot.BotActiveAloneForceWhenInZone = 1
+AiPlayerbot.BotActiveAloneForceWhenInZone = 0
 AiPlayerbot.BotActiveAloneForceWhenInMap = 0
 AiPlayerbot.BotActiveAloneForceWhenIsFriend = 0
 AiPlayerbot.BotActiveAloneForceWhenInGuild = 1
@@ -973,8 +977,10 @@ AiPlayerbot.RandomBotQuestIds = "3802,5505,6502,7761,7848,10277,10285,11492,1318
 # (members follow and assist their leader). These groups are ambient: battlegrounds, LFG,
 # arena, real-player invites and the bot logout rotation all take priority — the bot leaves
 # its group first and groups re-form organically afterward.
-# Default: 0 (disabled)
-AiPlayerbot.RandomBotGroupNearby = 0
+# This fork defaults to 1 so bots form small leveling parties; Solo-weighted roles keep many
+# bots alone. Real-player /invite always works; ambient decline only applies bot-to-bot.
+# Default: 1 (enabled for open-world leveling)
+AiPlayerbot.RandomBotGroupNearby = 1
 
 # When RandomBotGroupNearby is enabled, random bots (not player alts) roll a stable social role
 # from these weights. Solo bots never invite and decline ambient invites; members join only
