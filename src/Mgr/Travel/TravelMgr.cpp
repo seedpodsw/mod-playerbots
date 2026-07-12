@@ -5,6 +5,7 @@
 
 #include "TravelMgr.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <numeric>
 
@@ -20,6 +21,7 @@
 #include "PathGenerator.h"
 #include "Playerbots.h"
 #include "RaceMgr.h"
+#include "RandomPlayerbotMgr.h"
 #include "TransportMgr.h"
 #include "VMapFactory.h"
 #include "VMapMgr2.h"
@@ -4402,6 +4404,29 @@ std::vector<uint32> TravelMgr::GetFlightNodesInZone(uint32 zoneId, TeamId team, 
     return result;
 }
 
+bool TravelMgr::HasZoneLevelBracket(uint32 zoneId) const
+{
+    return zone2LevelBracket.find(zoneId) != zone2LevelBracket.end();
+}
+
+bool TravelMgr::IsZoneAppropriateForLevel(uint32 zoneId, uint8 level) const
+{
+    auto const it = zone2LevelBracket.find(zoneId);
+    if (it == zone2LevelBracket.end())
+        return true;
+
+    return it->second.InsideBracket(level);
+}
+
+bool TravelMgr::IsZoneUnderleveledForLevel(uint32 zoneId, uint8 level) const
+{
+    auto const it = zone2LevelBracket.find(zoneId);
+    if (it == zone2LevelBracket.end())
+        return false;
+
+    return level > it->second.high;
+}
+
 std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player* bot)
 {
     std::vector<std::vector<uint32>> validDestinations;
@@ -4418,7 +4443,9 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
     if (!startNode)
         return validDestinations;
 
-    uint32 botLevel = bot->GetLevel();
+    uint8 botLevel = bot->GetLevel();
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+        botLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
 
     // Bots already in a capital shouldn't have another capital picked as a
     // flight destination — that just shuffles them between cities.
@@ -4426,9 +4453,13 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
     if (AreaTableEntry const* area = sAreaTableStore.LookupEntry(bot->GetZoneId()))
         botInCapital = (area->flags & AREA_FLAG_CAPITAL) != 0;
 
-    //Simplify destination delection. Its either target cities (Based on config value) or target world.
+    bool const escapingUnderleveledZone = !botInCapital && IsZoneUnderleveledForLevel(bot->GetZoneId(), botLevel);
+
+    // Simplify destination selection. Prefer world hubs for progression escape;
+    // otherwise optionally bank in capitals based on config.
     std::vector<uint32> candidateZones;
-    if (botLevel >= 10 && !botInCapital && urand(0, 100) < sPlayerbotAIConfig.probTeleToBankers * 100)
+    if (!escapingUnderleveledZone && botLevel >= 10 && !botInCapital &&
+        urand(0, 100) < sPlayerbotAIConfig.probTeleToBankers * 100)
     {
         TeamId botTeam = bot->GetTeamId();
         for (Capital const& capital : capitals)
@@ -4440,38 +4471,56 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
     }
     if (candidateZones.empty())
     {
+        struct ZoneCandidate
+        {
+            uint32 zoneId;
+            uint32 bracketLow;
+        };
+        std::vector<ZoneCandidate> scoredZones;
         for (auto const& [zoneId, bracket] : zone2LevelBracket)
         {
             if (botLevel < bracket.low || botLevel > bracket.high)
                 continue;
+            if (zoneId == bot->GetZoneId())
+                continue;
             if (GetFlightNodesInZone(zoneId, bot->GetTeamId(), fromNode).empty())
                 continue;
-            candidateZones.push_back(zoneId);
+            scoredZones.push_back({zoneId, bracket.low});
         }
+
+        // Prefer "next" hubs whose bracket starts closer to current level
+        // (classic-like course) over random early-zone leftovers.
+        std::sort(scoredZones.begin(), scoredZones.end(),
+                  [botLevel](ZoneCandidate const& a, ZoneCandidate const& b)
+                  {
+                      uint32 da = a.bracketLow > botLevel ? a.bracketLow - botLevel : botLevel - a.bracketLow;
+                      uint32 db = b.bracketLow > botLevel ? b.bracketLow - botLevel : botLevel - b.bracketLow;
+                      if (da != db)
+                          return da < db;
+                      return a.bracketLow > b.bracketLow;
+                  });
+
+        for (ZoneCandidate const& z : scoredZones)
+            candidateZones.push_back(z.zoneId);
     }
 
     if (candidateZones.empty())
         return validDestinations;
 
-    while (!candidateZones.empty())
+    // Try preferred zones first; fall back through the ordered list.
+    for (uint32 pickedZone : candidateZones)
     {
-        uint32 zoneIndex = urand(0, candidateZones.size() - 1);
-        uint32 pickedZone = candidateZones[zoneIndex];
-
         std::vector<uint32> usableNodes = GetFlightNodesInZone(pickedZone, bot->GetTeamId(), fromNode);
+        if (usableNodes.empty())
+            continue;
 
-        if (!usableNodes.empty())
+        uint32 pickedNode = usableNodes[urand(0, usableNodes.size() - 1)];
+        std::vector<uint32> path = sTravelNodeMap.FindTaxiPath(fromNode, pickedNode);
+        if (!path.empty())
         {
-            uint32 pickedNode = usableNodes[urand(0, usableNodes.size() - 1)];
-            std::vector<uint32> path = sTravelNodeMap.FindTaxiPath(fromNode, pickedNode);
-            if (!path.empty())
-            {
-                validDestinations.push_back(std::move(path));
-                return validDestinations;
-            }
+            validDestinations.push_back(std::move(path));
+            return validDestinations;
         }
-
-        candidateZones.erase(candidateZones.begin() + zoneIndex);
     }
 
     return validDestinations;

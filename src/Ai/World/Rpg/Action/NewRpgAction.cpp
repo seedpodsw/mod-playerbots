@@ -64,7 +64,12 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
     {
         case RPG_IDLE:
             if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+            {
                 PruneObsoleteQuests();
+                if (PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot) &&
+                    TryHardRelocateForWrongZone())
+                    return true;
+            }
             return RandomChangeStatus({RPG_GO_CAMP, RPG_GO_GRIND, RPG_WANDER_RANDOM, RPG_WANDER_NPC, RPG_DO_QUEST,
                                        RPG_TRAVEL_FLIGHT, RPG_REST, RPG_OUTDOOR_PVP});
 
@@ -73,6 +78,11 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
             auto& data = std::get<NewRpgInfo::GoGrind>(info.data);
             WorldPosition& originalPos = data.pos;
             assert(data.pos != WorldPosition());
+            // Escape mid-transit if the destination camp is still underleveled for progression.
+            if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+                PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot) &&
+                TryHardRelocateForWrongZone())
+                return true;
             // GO_GRIND -> WANDER_RANDOM
             if (bot->GetExactDist(originalPos) < 10.0f)
             {
@@ -96,6 +106,13 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
         }
         case RPG_WANDER_RANDOM:
         {
+            if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+                PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot) &&
+                TryHardRelocateForWrongZone())
+            {
+                return true;
+            }
+
             if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
                 info.HasStatusPersisted(statusProgressionStagnationDuration) &&
                 TryRelocateForProgressionStagnation())

@@ -37,6 +37,8 @@ This fork extends upstream `master` with ambient random-bot grouping, open-world
 - Group leaders use **RPG leader behavior** similar to solo bots so parties move and quest together instead of idling apart.
 - **Hard-prefer DoQuest** when a worthwhile quest is available (open-world progression); weights only matter for the fallback when no quest is ready.
 - **Tight grind level band** (min slack / max progression+2, mid-band scoring) so XP is not wasted on wrong-level mobs.
+- **Wrong-zone hard relocate** — if the current zone bracket is below progression level (e.g. ~27 in Barrens), solo/leaders leave via flight → level-appropriate hub, else teleport; non-quest grind in that zone is skipped.
+- **Quest/grind course scoring** — quest pick prefers near-level XP value; grind camps stay in level-appropriate zones (cross-zone same-map when escaping).
 - **Ambient parties favor 2–3** (Leader4/5 weights default 0; invite target clamped) so group XP dilution stays limited — enable `RandomBotGroupNearby = 1` to see this.
 - Starter **zone brackets** and RPG weight defaults added to [`conf/playerbots.conf.dist`](conf/playerbots.conf.dist).
 - **Eyeball check:** after a long uptime (~18h), max bot level should clearly beat a low ceiling (e.g. stuck ~27–28); also watch zone spread and small party sizes.

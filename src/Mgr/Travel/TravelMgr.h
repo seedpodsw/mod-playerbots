@@ -883,6 +883,12 @@ public:
     bool SelectAuctioneerByMap(Player* bot, NpcLocation& outAuctioneer);
     const std::vector<WorldLocation>& GetLocsPerLevelCache(uint8 level) { return locsPerLevelCache[level]; }
 
+    // Zone bracket helpers for open-world progression course selection.
+    // Unknown zones (no bracket) are treated as not underleveled.
+    bool HasZoneLevelBracket(uint32 zoneId) const;
+    bool IsZoneAppropriateForLevel(uint32 zoneId, uint8 level) const;
+    bool IsZoneUnderleveledForLevel(uint32 zoneId, uint8 level) const;
+
     template <class D, class W, class URBG>
     void weighted_shuffle(D first, D last, W first_weight, W last_weight, URBG&& g)
     {

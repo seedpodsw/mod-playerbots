@@ -94,6 +94,14 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
         }
 
         bool const useOpenWorldProgression = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot);
+        if (useOpenWorldProgression &&
+            PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot) &&
+            !needForQuest(unit))
+        {
+            // Do not keep grinding non-quest mobs in an underleveled zone (Barrens-class).
+            continue;
+        }
+
         if (!bot->InBattleground() && !unit->GetGUID().IsPlayer())
         {
             int32 const levelRef = useOpenWorldProgression

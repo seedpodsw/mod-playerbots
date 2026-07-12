@@ -52,6 +52,7 @@ protected:
     bool PruneObsoleteQuests();
     bool HasLevelAppropriateContentNearby();
     bool TryRelocateForProgressionStagnation();
+    bool TryHardRelocateForWrongZone();
 
 protected:
     float GetQuestPoiMaxDistance() const;
@@ -63,6 +64,7 @@ protected:
     bool CheckRpgStatusAvailable(NewRpgStatus status);
     bool FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInfo) const;
     bool IsBotLedNearbyGroupBot() const;
+    static uint32 ScoreQuestForProgression(Player* bot, Quest const* quest);
 
 protected:
     /* FOR MOVE FAR */

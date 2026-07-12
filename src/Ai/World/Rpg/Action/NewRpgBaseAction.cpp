@@ -1,5 +1,8 @@
 #include "NewRpgBaseAction.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "BroadcastHelper.h"
 #include "ChatHelper.h"
 #include "Creature.h"
@@ -1067,7 +1070,8 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
         return WorldPosition{};
 
     uint8 grindLevel = bot->GetLevel();
-    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot))
+    bool const useProgression = sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot);
+    if (useProgression)
         grindLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
 
     const std::vector<WorldLocation>& locs = sTravelMgr.GetLocsPerLevelCache(grindLevel);
@@ -1082,6 +1086,9 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
             inCity = true;
     }
 
+    bool const currentZoneUnderleveled =
+        useProgression && PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot);
+
     for (auto& loc : locs)
     {
         if (bot->GetMapId() != loc.GetMapId())
@@ -1090,14 +1097,41 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot, bool forceRelo
         if (bot->GetExactDist(loc) > loRange)
             continue;
 
-        if (!inCity && bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
-                                                loc.GetPositionZ()) != bot->GetZoneId())
+        uint32 const locZoneId = bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
+                                                          loc.GetPositionZ());
+
+        // Stay in-zone while leveling normally; when the current zone is underleveled,
+        // allow same-map cross-zone camps that match the progression bracket.
+        if (!inCity && !currentZoneUnderleveled && locZoneId != bot->GetZoneId())
+            continue;
+
+        if (useProgression && !sTravelMgr.IsZoneAppropriateForLevel(locZoneId, grindLevel))
             continue;
 
         if (bot->GetExactDist(loc) < hiRange)
             hi_prepared_locs.push_back(loc);
 
         lo_prepared_locs.push_back(loc);
+    }
+
+    // If stuck in an underleveled zone with no valid same-map camps, widen to any
+    // level-appropriate camps on this map (ignore distance) so callers can walk/tele.
+    if (lo_prepared_locs.empty() && currentZoneUnderleveled)
+    {
+        for (auto& loc : locs)
+        {
+            if (bot->GetMapId() != loc.GetMapId())
+                continue;
+
+            uint32 const locZoneId = bot->GetMap()->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
+                                                              loc.GetPositionZ());
+            if (!sTravelMgr.IsZoneAppropriateForLevel(locZoneId, grindLevel))
+                continue;
+
+            lo_prepared_locs.push_back(loc);
+            if (bot->GetExactDist(loc) < hiRange)
+                hi_prepared_locs.push_back(loc);
+        }
     }
 
     WorldPosition dest{};
@@ -1206,6 +1240,14 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
     if (!activeBot)
         return false;
 
+    // Wrong-zone escape: leave underleveled zones before picking grind/wander work.
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot) &&
+        PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(activeBot))
+    {
+        if (TryHardRelocateForWrongZone())
+            return true;
+    }
+
     NewRpgStatus chosenStatus = RPG_STATUS_END;
 
     // Hard-prefer DoQuest for open-world progression bots when a worthwhile quest is
@@ -1238,6 +1280,11 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
         for (NewRpgStatus status : candidateStatus)
         {
             if (sPlayerbotAIConfig.RpgStatusProbWeight[status] == 0)
+                continue;
+
+            // Avoid starting a grind camp while the current zone is clearly underleveled.
+            if (status == RPG_GO_GRIND && sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot) &&
+                PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(activeBot))
                 continue;
 
             if (CheckRpgStatusAvailable(status))
@@ -1319,22 +1366,18 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
             }
             if (availableQuests.size())
             {
-                uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(activeBot);
                 uint32 questId = availableQuests[0];
-                int32 bestLevel = -1;
+                uint32 bestScore = 0;
                 for (uint32 id : availableQuests)
                 {
                     Quest const* candidate = sObjectMgr->GetQuestTemplate(id);
                     if (!candidate)
                         continue;
 
-                    int32 questLevel = candidate->GetQuestLevel();
-                    if (questLevel < 0)
-                        questLevel = levelRef;
-
-                    if (questLevel > bestLevel)
+                    uint32 score = ScoreQuestForProgression(activeBot, candidate);
+                    if (score > bestScore)
                     {
-                        bestLevel = questLevel;
+                        bestScore = score;
                         questId = id;
                     }
                 }
@@ -1377,12 +1420,9 @@ bool NewRpgBaseAction::RandomChangeStatus(std::vector<NewRpgStatus> candidateSta
             return true;
         }
         default:
-        {
-            botAI->rpgInfo.ChangeToRest();
-            activeBot->SetStandState(UNIT_STAND_STATE_SIT);
-            return true;
-        }
+            break;
     }
+
     return false;
 }
 
@@ -1540,6 +1580,11 @@ bool NewRpgBaseAction::FilterQuestPoiForNearbyGroup(std::vector<POIInfo>& poiInf
 
 bool NewRpgBaseAction::HasLevelAppropriateContentNearby()
 {
+    // Underleveled zones are never "appropriate" even if a few edge-band mobs remain.
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+        PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot))
+        return false;
+
     if (Unit* target = AI_VALUE(Unit*, "grind target"))
         return true; // GrindTargetValue already applied OW band / quest-needed rules.
 
@@ -1561,11 +1606,111 @@ bool NewRpgBaseAction::HasLevelAppropriateContentNearby()
     return false;
 }
 
+uint32 NewRpgBaseAction::ScoreQuestForProgression(Player* bot, Quest const* quest)
+{
+    if (!bot || !quest)
+        return 0;
+
+    uint8 const levelRef = PlayerbotGroupProgression::GetQuestLevelRef(bot);
+    int32 questLevel = quest->GetQuestLevel();
+    if (questLevel < 0)
+        questLevel = levelRef;
+
+    // Prefer quests near progression level; slight bias toward on-level or +1/+2.
+    int32 delta = questLevel - int32(levelRef);
+    if (delta < 0)
+        delta = -delta;
+    uint32 score = 1000;
+    if (delta > 6)
+        score = 100;
+    else
+        score = 1000 - uint32(delta) * 80;
+
+    if (questLevel >= int32(levelRef) && questLevel <= int32(levelRef) + 2)
+        score += 120;
+
+    // Prefer higher XP rewards among near-level quests.
+    score += std::min<uint32>(quest->XPValue(levelRef) / 50, 200);
+
+    return score;
+}
+
+bool NewRpgBaseAction::TryHardRelocateForWrongZone()
+{
+    Player* activeBot = GetValidBot();
+    if (!activeBot)
+        return false;
+
+    if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(activeBot))
+        return false;
+
+    if (!PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(activeBot))
+        return false;
+
+    Group* group = activeBot->GetGroup();
+    bool const nearbyGroup = group && sRandomPlayerbotMgr.IsBotLedNearbyGroup(group);
+    if (nearbyGroup && !group->IsLeader(activeBot->GetGUID()))
+        return false;
+
+    // Prefer flight to a level-appropriate next hub.
+    uint32 flightMasterEntry = 0;
+    WorldPosition flightMasterPos;
+    std::vector<uint32> path;
+    if (SelectRandomFlightTaxiNode(flightMasterEntry, flightMasterPos, path))
+    {
+        botAI->rpgInfo.ChangeToTravelFlight(flightMasterEntry, flightMasterPos, path);
+        LOG_DEBUG("playerbots", "[New RPG] {} hard-relocating via flight from underleveled zone {}",
+                  activeBot->GetName(), activeBot->GetZoneId());
+        return true;
+    }
+
+    // Same-map appropriate grind camp as a walk/teleport stepping stone.
+    WorldPosition pos = SelectRandomGrindPos(activeBot, true);
+    if (pos != WorldPosition())
+    {
+        uint32 const destZone = activeBot->GetMap()->GetZoneId(activeBot->GetPhaseMask(), pos.GetPositionX(),
+                                                                pos.GetPositionY(), pos.GetPositionZ());
+        if (destZone != activeBot->GetZoneId() &&
+            sTravelMgr.IsZoneAppropriateForLevel(destZone, PlayerbotGroupProgression::GetProgressionLevel(activeBot)))
+        {
+            botAI->rpgInfo.ChangeToGoGrind(pos);
+            LOG_DEBUG("playerbots", "[New RPG] {} hard-relocating to grind camp in zone {} from underleveled {}",
+                      activeBot->GetName(), destZone, activeBot->GetZoneId());
+            return true;
+        }
+    }
+
+    if (nearbyGroup)
+    {
+        if (sRandomPlayerbotMgr.RelocateNearbyGroupForProgression(activeBot))
+        {
+            botAI->rpgInfo.ChangeToIdle();
+            LOG_DEBUG("playerbots", "[New RPG] {} party hub teleport escaping underleveled zone {}",
+                      activeBot->GetName(), activeBot->GetZoneId());
+            return true;
+        }
+        return false;
+    }
+
+    sRandomPlayerbotMgr.RandomTeleportForLevel(activeBot);
+    botAI->Reset(true);
+    botAI->rpgInfo.ChangeToIdle();
+    LOG_DEBUG("playerbots", "[New RPG] {} teleporting out of underleveled zone {} for progression",
+              activeBot->GetName(), activeBot->GetZoneId());
+    return true;
+}
+
 bool NewRpgBaseAction::TryRelocateForProgressionStagnation()
 {
     if (!sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
         !sRandomPlayerbotMgr.ShouldUseOpenWorldProgressionChecks(bot))
         return false;
+
+    // Wrong-zone escape takes priority over local stagnation recovery.
+    if (sRandomPlayerbotMgr.ShouldUseOpenWorldProgression(bot) &&
+        PlayerbotGroupProgression::IsCurrentZoneUnderleveledForProgression(bot) &&
+        TryHardRelocateForWrongZone())
+        return true;
 
     if (HasLevelAppropriateContentNearby())
         return false;

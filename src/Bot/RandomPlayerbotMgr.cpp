@@ -2033,6 +2033,33 @@ void RandomPlayerbotMgr::RandomTeleportForLevel(Player* bot)
         }
     }
     std::vector<WorldLocation> locs = sTravelMgr.GetTeleportLocations(bot);
+    if (ShouldUseOpenWorldProgression(bot) && !locs.empty())
+    {
+        uint8 const progressionLevel = PlayerbotGroupProgression::GetProgressionLevel(bot);
+        std::vector<WorldLocation> filtered;
+        filtered.reserve(locs.size());
+        for (WorldLocation const& loc : locs)
+        {
+            Map const* map = sMapMgr->FindMap(loc.GetMapId(), 0);
+            if (!map)
+            {
+                // Keep candidates we cannot resolve; RandomTeleport will validate.
+                filtered.push_back(loc);
+                continue;
+            }
+
+            uint32 const zoneId = map->GetZoneId(bot->GetPhaseMask(), loc.GetPositionX(), loc.GetPositionY(),
+                                                 loc.GetPositionZ());
+            if (sTravelMgr.IsZoneUnderleveledForLevel(zoneId, progressionLevel))
+                continue;
+
+            filtered.push_back(loc);
+        }
+
+        if (!filtered.empty())
+            locs = std::move(filtered);
+    }
+
     if (!locs.empty())
     {
         RandomTeleport(bot, locs, false);
@@ -2553,6 +2580,22 @@ bool HasAppropriateMobNearby(Player* bot, PlayerbotAI* botAI)
     }
 
     return false;
+}
+
+bool IsCurrentZoneUnderleveledForProgression(Player* bot)
+{
+    if (!bot || !bot->IsInWorld())
+        return false;
+
+    // Capitals are transit hubs, not grind zones — never treat as underleveled.
+    if (AreaTableEntry const* zone = sAreaTableStore.LookupEntry(bot->GetZoneId()))
+    {
+        if (zone->flags & AREA_FLAG_CAPITAL)
+            return false;
+    }
+
+    uint8 const progressionLevel = GetProgressionLevel(bot);
+    return sTravelMgr.IsZoneUnderleveledForLevel(bot->GetZoneId(), progressionLevel);
 }
 }  // namespace PlayerbotGroupProgression
 

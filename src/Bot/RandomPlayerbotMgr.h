@@ -78,6 +78,9 @@ float GetNearbyPartyRadius();
 bool HasValidProgressionQuest(Player* bot);
 // True if a level-appropriate hostile is nearby (grind target or scan).
 bool HasAppropriateMobNearby(Player* bot, PlayerbotAI* botAI);
+// True when the bot's current zone bracket high is below progression level
+// (e.g. level 27 in Barrens). Zones without a known bracket are not underleveled.
+bool IsCurrentZoneUnderleveledForProgression(Player* bot);
 }
 
 struct CachedEvent
