@@ -192,6 +192,13 @@ float PullMultiplier::GetValue(Action* action)
     if (!strategy->HasPullStarted())
         return 1.0f;
 
+    // Target already engaged — do not keep the tank locked out of combat actions.
+    if (Unit* target = strategy->GetTarget())
+    {
+        if (target->IsInCombat() || botAI->GetBot()->IsInCombat())
+            return 1.0f;
+    }
+
     std::string const actionName = action->getName();
     if (actionName == "pull my target" ||
         actionName == "pull rti target" ||
@@ -201,7 +208,11 @@ float PullMultiplier::GetValue(Action* action)
         actionName == "return to pull position" ||
         actionName == "pull end" ||
         actionName == "follow" ||
-        actionName == "set facing")
+        actionName == "set facing" ||
+        actionName == "reset botAI" ||
+        actionName == "co" ||
+        actionName == "nc" ||
+        actionName == "change strategy")
         return 1.0f;
 
     return 0.0f;
@@ -224,15 +235,24 @@ float MagePullMultiplier::GetValue(Action* action)
         return 1.0f;
 
     PullStrategy const* strategy = PullStrategy::Get(botAI);
-    if (!strategy || !strategy->HasTarget())
+    // Only restrict while an active pull has started. Pending-only HasTarget used to apply
+    // PassiveMultiplier forever if pull start failed (e.g. pre-action), requiring reset.
+    if (!strategy || !strategy->HasTarget() || !strategy->HasPullStarted())
         return 1.0f;
+
+    if (Unit* target = strategy->GetTarget())
+    {
+        if (target->IsInCombat() || botAI->GetBot()->IsInCombat())
+            return 1.0f;
+    }
 
     std::string const name = action->getName();
     if (actionName == name || name == "pull action" || name == "pull start" || name == "pull end" ||
         name == "pull my target" || name == "pull rti target" ||
         name == "reach spell" || name == "reach pull" ||
         name == "return to pull position" || name == "follow" ||
-        name == "set facing" || name == "change strategy")
+        name == "set facing" || name == "change strategy" ||
+        name == "reset botAI" || name == "co" || name == "nc")
         return 1.0f;
 
     return PassiveMultiplier::GetValue(action);

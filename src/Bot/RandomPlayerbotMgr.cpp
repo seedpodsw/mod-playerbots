@@ -294,6 +294,30 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     if (!sPlayerbotAIConfig.randomBotAutologin || !sPlayerbotAIConfig.enabled)
         return;
 
+    // Vanilla / pre-Wrath: keep Death Knight bots offline and strip honor.
+    if (sPlayerbotAIConfig.disableDeathKnightLogin && !playerBots.empty())
+    {
+        std::vector<ObjectGuid> deathKnights;
+        for (auto const& [guid, bot] : playerBots)
+        {
+            if (bot && bot->getClass() == CLASS_DEATH_KNIGHT)
+                deathKnights.push_back(guid);
+        }
+
+        for (ObjectGuid const& guid : deathKnights)
+        {
+            if (Player* bot = GetPlayerBot(guid))
+            {
+                if (bot->GetHonorPoints() > 0)
+                    bot->SetHonorPoints(0);
+            }
+
+            SetEventValue(guid.GetCounter(), "add", 0, 0);
+            currentBots.remove(guid.GetCounter());
+            LogoutPlayerBot(guid);
+        }
+    }
+
     /*if (sPlayerbotAIConfig.enablePrototypePerformanceDiff)
     {
         LOG_INFO("playerbots", "---------------------------------------");

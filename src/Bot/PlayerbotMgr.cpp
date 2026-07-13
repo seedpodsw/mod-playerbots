@@ -99,6 +99,22 @@ void PlayerbotHolder::AddPlayerBot(ObjectGuid playerGuid, uint32 masterAccountId
     WorldSession* masterSession = masterAccountId ? sWorldSessionMgr->FindSession(masterAccountId) : nullptr;
     Player* masterPlayer = masterSession ? masterSession->GetPlayer() : nullptr;
 
+    if (sPlayerbotAIConfig.disableDeathKnightLogin)
+    {
+        if (CharacterCacheEntry const* characterInfo = sCharacterCache->GetCharacterCacheByGuid(playerGuid))
+        {
+            if (characterInfo->Class == CLASS_DEATH_KNIGHT)
+            {
+                if (masterSession)
+                {
+                    ChatHandler ch(masterSession);
+                    ch.SendSysMessage("Death Knights are disabled until Wrath progression.");
+                }
+                return;
+            }
+        }
+    }
+
     bool isRndbot = !masterAccountId;
     bool sameAccount = sPlayerbotAIConfig.allowAccountBots && accountId == masterAccountId;
     Guild* guild = masterPlayer ? sGuildMgr->GetGuildById(masterPlayer->GetGuildId()) : nullptr;
@@ -380,6 +396,11 @@ void PlayerbotHolder::LogoutPlayerBot(ObjectGuid guid)
             bot->SetTaxiCheater(false);
 
         sRandomPlayerbotMgr.FlushEventCacheForBot(bot->GetGUID().GetCounter());
+
+        // Keep DK honor wiped while they are disabled for vanilla progression.
+        if (sPlayerbotAIConfig.disableDeathKnightLogin && bot->getClass() == CLASS_DEATH_KNIGHT)
+            bot->SetHonorPoints(0);
+
         bot->SaveToDB(false, false);
         if (sRandomPlayerbotMgr.IsRandomBot(bot))
             ++sPlayerbotAIConfig.dbPerfStats.randomBotSaveToDB;
@@ -1189,7 +1210,13 @@ std::vector<std::string> PlayerbotHolder::HandlePlayerbotCommand(char const* arg
             }
         } //end
 
-        if (claz == 6 && master->GetLevel() < sWorld->getIntConfig(CONFIG_START_HEROIC_PLAYER_LEVEL))
+        if (claz == CLASS_DEATH_KNIGHT && sPlayerbotAIConfig.disableDeathKnightLogin)
+        {
+            messages.push_back("Death Knights are disabled until Wrath progression.");
+            return messages;
+        }
+
+        if (claz == CLASS_DEATH_KNIGHT && master->GetLevel() < sWorld->getIntConfig(CONFIG_START_HEROIC_PLAYER_LEVEL))
         {
             messages.push_back("Your level is too low to summon Deathknight");
             return messages;

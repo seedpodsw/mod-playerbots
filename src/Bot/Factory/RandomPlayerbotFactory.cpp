@@ -46,8 +46,9 @@ bool RandomPlayerbotFactory::IsValidRaceClassCombination(uint8 race, uint8 cls, 
     if (expansion < EXPANSION_THE_BURNING_CRUSADE && (race == RACE_BLOODELF || race == RACE_DRAENEI))
         return false;
 
-    // skip expansion classes if not playing with expansion
-    if (expansion < EXPANSION_WRATH_OF_THE_LICH_KING && cls == CLASS_DEATH_KNIGHT)
+    // skip expansion classes if not playing with expansion / intentionally disabled
+    if (cls == CLASS_DEATH_KNIGHT &&
+        (sPlayerbotAIConfig.disableDeathKnightLogin || expansion < EXPANSION_WRATH_OF_THE_LICH_KING))
         return false;
 
     PlayerInfo const* info = sObjectMgr->GetPlayerInfo(race, cls);
@@ -710,6 +711,9 @@ void RandomPlayerbotFactory::CreateRandomBots()
 
             // skip disabled with config classes
             if ((1 << (cls - 1)) & sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_DISABLED_CLASSMASK))
+                continue;
+
+            if (cls == CLASS_DEATH_KNIGHT && sPlayerbotAIConfig.disableDeathKnightLogin)
                 continue;
 
             Player* playerBot = factory.CreateRandomBot(session, cls, nameCache);

@@ -32,6 +32,12 @@ bool PullEndTrigger::IsActive()
     if (secondsSincePullStarted >= PullStrategy::GetMaxPullTime())
         return true;
 
+    // Once the mob is tagged or the tank is in combat, end the pull lock immediately.
+    // Waiting for melee range / pull-back while PullMultiplier blocks all tank actions
+    // leaves the bot unresponsive until reset.
+    if (target->IsInCombat() || bot->IsInCombat())
+        return true;
+
     float distanceToPullTarget = bot->GetDistance(target);
     if (distanceToPullTarget > ATTACK_DISTANCE && !target->IsNonMeleeSpellCast(false, false, true) &&
         (!botAI->IsRanged(bot) || distanceToPullTarget > botAI->GetRange("spell")))

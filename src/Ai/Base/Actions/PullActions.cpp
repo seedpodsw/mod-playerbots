@@ -254,6 +254,10 @@ std::vector<NextAction> PullAction::getPrerequisites()
     if (!strategy || !target)
         return {};
 
+    // Abort path — do not gate on reach when the mob is already fighting.
+    if (target->IsInCombat() || bot->IsInCombat())
+        return {};
+
     return IsWithinPullRange(bot, target, strategy) ? std::vector<NextAction>{}
                                                      : std::vector<NextAction>{ NextAction("reach pull", ACTION_MOVE) };
 }
@@ -270,10 +274,12 @@ bool PullAction::Execute(Event event)
     if (!target || !target->IsInWorld())
         return false;
 
-    if (target->IsInCombat())
+    // Target already tagged (by us or the group) — drop the pull lock and tank normally.
+    // Do not require the pull spell to still be castable; it is often on cooldown here.
+    if (target->IsInCombat() || bot->IsInCombat())
     {
-        if (strategy->HasPullStarted() || strategy->IsPullPendingToStart())
-            return AbortStuckPull(botAI, bot, strategy, context, true);
+        if (strategy->HasPullStarted() || strategy->IsPullPendingToStart() || strategy->HasTarget())
+            return AbortStuckPull(botAI, bot, strategy, context, true, false);
 
         return false;
     }
@@ -284,6 +290,8 @@ bool PullAction::Execute(Event event)
         return false;
     }
 
+    // Only stop once in range to cast. Stopping while approaching fights ReachPull and
+    // leaves the tank jittering halfway with PullMultiplier locking combat actions.
     if (bot->isMoving())
     {
         bot->StopMoving();
@@ -308,6 +316,24 @@ bool PullAction::Execute(Event event)
     return true;
 }
 
+bool PullAction::isUseful()
+{
+    PullStrategy* strategy = PullStrategy::Get(botAI);
+    if (!strategy)
+        return false;
+
+    Unit* target = strategy->GetTarget();
+    if (!target || !target->IsInWorld() || target->GetMapId() != bot->GetMapId())
+        return false;
+
+    // Always useful while a pull is active so we can abort after the tag even when the
+    // pull spell is on cooldown (CastSpellAction::isUseful would return false then).
+    if (strategy->HasPullStarted() || strategy->IsPullPendingToStart())
+        return true;
+
+    return CastSpellAction::isUseful();
+}
+
 bool PullAction::isPossible()
 {
     InitPullAction();
@@ -317,11 +343,15 @@ bool PullAction::isPossible()
         return false;
 
     Unit* target = strategy->GetTarget();
-    std::string const spellName = strategy->GetSpellName();
-    if (!target || !target->IsInWorld() || target->GetMapId() != bot->GetMapId() || spellName.empty())
+    if (!target || !target->IsInWorld() || target->GetMapId() != bot->GetMapId())
         return false;
 
-    return true;
+    // Allow Execute to run for abort-on-combat even if the pull spell name is empty/on CD.
+    if (target->IsInCombat() || bot->IsInCombat())
+        return strategy->HasPullStarted() || strategy->IsPullPendingToStart() || strategy->HasTarget();
+
+    std::string const spellName = strategy->GetSpellName();
+    return !spellName.empty();
 }
 
 void PullAction::InitPullAction()
@@ -353,22 +383,17 @@ bool PullEndAction::Execute(Event /*event*/)
     if (!strategy->HasPullStarted() && !strategy->IsPullPendingToStart() && !strategy->HasTarget())
         return false;
 
-    if (Pet* pet = bot->GetPet())
-    {
-        Creature* creature = pet->ToCreature();
-        if (creature)
-            creature->SetReactState(strategy->GetPetReactState());
-    }
-
     PositionMap& posMap = AI_VALUE(PositionMap&, "position");
     PositionInfo pullPosition = posMap["pull"];
     if (pullPosition.isSet())
         posMap.erase("pull");
 
-    if (pullTarget && context->GetValue<Unit*>("current target")->Get() == pullTarget)
-        context->GetValue<Unit*>("current target")->Set(nullptr);
+    // Keep the pull target if combat already started — clearing it leaves the tank idle.
+    bool const keepTarget = pullTarget && (pullTarget->IsInCombat() || bot->IsInCombat());
+    if (keepTarget)
+        context->GetValue<Unit*>("current target")->Set(pullTarget);
 
-    strategy->OnPullEnded();
+    AbortPullInProgress(botAI, bot, strategy);
     return true;
 }
 

@@ -965,6 +965,10 @@ void PlayerbotAI::Reset(bool full)
     aiObjectContext->GetValue<GuidVector>("prioritized targets")->Reset();
     aiObjectContext->GetValue<ObjectGuid>("pull target")->Set(ObjectGuid::Empty);
     aiObjectContext->GetValue<ObjectGuid>("pull strategy target")->Set(ObjectGuid::Empty);
+    if (PullStrategy* pullStrategy = dynamic_cast<PullStrategy*>(GetStrategy("pull", BOT_STATE_COMBAT)))
+        pullStrategy->OnPullEnded();
+    if (PullStrategy* pullStrategy = dynamic_cast<PullStrategy*>(GetStrategy("pull", BOT_STATE_NON_COMBAT)))
+        pullStrategy->OnPullEnded();
     aiObjectContext->GetValue<GuidPosition>("rpg target")->Set(GuidPosition());
     aiObjectContext->GetValue<LootObject>("loot target")->Set(LootObject());
     aiObjectContext->GetValue<uint32>("lfg proposal")->Set(0);

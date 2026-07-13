@@ -726,8 +726,10 @@ AiPlayerbot.PeriodicOnlineOfflineRatio = 2.0
 AiPlayerbot.RandomBotAllianceRatio = 50
 AiPlayerbot.RandomBotHordeRatio = 50
 
-# Disable logging in of death knight bots
-AiPlayerbot.DisableDeathKnightLogin = 0
+# Disable logging in of death knight bots (also blocks create / addclass)
+# Keep enabled for vanilla progression (through Ragnaros) until Wrath content opens
+# Default: 1 (disabled — no DK bots until WotLK phase)
+AiPlayerbot.DisableDeathKnightLogin = 1
 
 # Enable simulated expansion limitation for talents and glyphs
 # If enabled, limits talent trees to 6 rows plus the middle talent of the 7th row for bots until level 61
