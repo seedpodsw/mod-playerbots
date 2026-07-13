@@ -144,7 +144,7 @@ bool BgPlayerOrderActiveTrigger::IsActive()
     if (!order)
         return false;
 
-    return BgOrderRegistry::ShouldFulfillTeamOrder(bg, bot->GetTeamId(), *order);
+    return BgOrderRegistry::ShouldFulfillTeamOrder(bot, bg, bot->GetTeamId(), *order);
 }
 
 bool BgInviteActiveTrigger::IsActive()

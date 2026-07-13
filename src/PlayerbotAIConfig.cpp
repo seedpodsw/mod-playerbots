@@ -201,8 +201,14 @@ bool PlayerbotAIConfig::Initialize()
                                            "3973,4085,4086,4087,4088"),
         pvpProhibitedAreaIds);
     fastReactInBG = sConfigMgr->GetOption<bool>("AiPlayerbot.FastReactInBG", true);
-    hardModeBG = sConfigMgr->GetOption<bool>("AiPlayerbot.HardModeBG", false);
+    hardModeBG = sConfigMgr->GetOption<bool>("AiPlayerbot.HardModeBG", true);
     bgOrderDurationSec = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgOrderDurationSec", 120);
+    bgOrderVolunteerPct = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgOrderVolunteerPct", 25);
+    if (bgOrderVolunteerPct > 100)
+        bgOrderVolunteerPct = 100;
+    bgOrderAckDeclinePct = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgOrderAckDeclinePct", 15);
+    if (bgOrderAckDeclinePct > 100)
+        bgOrderAckDeclinePct = 100;
     bgObjectiveStaleSec = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgObjectiveStaleSec", 45);
     bgMaxBotsPerNode = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgMaxBotsPerNode", 2);
     bgNodeRadius = sConfigMgr->GetOption<float>("AiPlayerbot.BgNodeRadius", 15.0f);
@@ -213,11 +219,11 @@ bool PlayerbotAIConfig::Initialize()
     bgReactDelay = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgReactDelay", 100);
     bgAttackPriority = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAttackPriority", hardModeBG ? 75 : 55);
     bgEnemyAggroRange = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgEnemyAggroRange", hardModeBG ? 100 : 80);
-    bgChaseEnemyChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgChaseEnemyChance", hardModeBG ? 30 : 8);
+    bgChaseEnemyChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgChaseEnemyChance", hardModeBG ? 20 : 8);
     bgDefaultStrategyBias = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgDefaultStrategyBias", hardModeBG ? 65 : 50);
     bgCombatObjectivePush = sConfigMgr->GetOption<bool>("AiPlayerbot.BgCombatObjectivePush", hardModeBG);
-    bgAbEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAbEnemyDetourChance", hardModeBG ? 25 : 5);
-    bgAvEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAvEnemyDetourChance", hardModeBG ? 35 : 8);
+    bgAbEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAbEnemyDetourChance", hardModeBG ? 15 : 5);
+    bgAvEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAvEnemyDetourChance", hardModeBG ? 25 : 8);
     LoadList<std::vector<uint32>>(
         sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotQuestIds", "3802,5505,6502,7761,7848,10277,10285,11492,"
                                            "13188,13189,24499,24511,24710,24712"),
@@ -243,6 +249,8 @@ bool PlayerbotAIConfig::Initialize()
     minRandomBots = sConfigMgr->GetOption<int32>("AiPlayerbot.MinRandomBots", 500);
     maxRandomBots = sConfigMgr->GetOption<int32>("AiPlayerbot.MaxRandomBots", 500);
     randomBotUpdateInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotUpdateInterval", 20);
+    randomBotInitUpdateInterval = sConfigMgr->GetOption<uint32>("AiPlayerbot.RandomBotInitUpdateInterval", 5);
+    randomBotInitCompleteRatio = sConfigMgr->GetOption<float>("AiPlayerbot.RandomBotInitCompleteRatio", 0.95f);
     randomBotCountChangeMinInterval =
         sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotCountChangeMinInterval", 30 * MINUTE);
     randomBotCountChangeMaxInterval =
@@ -658,6 +666,8 @@ bool PlayerbotAIConfig::Initialize()
     botActiveAlone = sConfigMgr->GetOption<int32>("AiPlayerbot.BotActiveAlone", 100);
     BotActiveAloneDurationSeconds = sConfigMgr->GetOption<int32>("AiPlayerbot.BotActiveAloneDurationSeconds", 45);
     BotActiveAloneForceWhenInRadius = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotActiveAloneForceWhenInRadius", 200);
+    BotActiveAloneForceWhenInRadiusMax =
+        sConfigMgr->GetOption<uint32>("AiPlayerbot.BotActiveAloneForceWhenInRadiusMax", 40);
     BotActiveAloneForceWhenInZone = sConfigMgr->GetOption<bool>("AiPlayerbot.BotActiveAloneForceWhenInZone", 0);
     BotActiveAloneForceWhenInMap = sConfigMgr->GetOption<bool>("AiPlayerbot.BotActiveAloneForceWhenInMap", 0);
     BotActiveAloneForceWhenIsFriend = sConfigMgr->GetOption<bool>("AiPlayerbot.BotActiveAloneForceWhenIsFriend", 0);
@@ -667,6 +677,10 @@ bool PlayerbotAIConfig::Initialize()
     botActiveAloneSmartScaleDiffLimitCeiling = sConfigMgr->GetOption<uint32>("AiPlayerbot.botActiveAloneSmartScaleDiffLimitCeiling", 200);
     botActiveAloneSmartScaleWhenMinLevel = sConfigMgr->GetOption<uint32>("AiPlayerbot.botActiveAloneSmartScaleWhenMinLevel", 1);
     botActiveAloneSmartScaleWhenMaxLevel = sConfigMgr->GetOption<uint32>("AiPlayerbot.botActiveAloneSmartScaleWhenMaxLevel", 80);
+    botPacketsPerTick = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotPacketsPerTick", 50);
+    botPacketsPerWorldTick = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotPacketsPerWorldTick", 2000);
+    botPacketsPerWorldTickInit = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotPacketsPerWorldTickInit", 1000);
+    inactiveBotUpdateSkip = sConfigMgr->GetOption<uint32>("AiPlayerbot.InactiveBotUpdateSkip", 4);
 
     randombotsWalkingRPG = sConfigMgr->GetOption<bool>("AiPlayerbot.RandombotsWalkingRPG", false);
     randombotsWalkingRPGInDoors = sConfigMgr->GetOption<bool>("AiPlayerbot.RandombotsWalkingRPG.InDoors", false);

@@ -69,10 +69,14 @@ bool TryApplyPriorityObjective(Player* bot, PlayerbotAI* botAI, AiObjectContext*
         BgNodeRef node;
         if (BgOrderRegistry::TrySelectTeamOrderObjective(bot, bg, *order, node))
         {
+            BgOrderRegistry::TrySpeakBgOrderAck(bot, botAI, *order, true);
             BgOrderRegistry::AssignObjectivePosition(bot, botAI, posMap, node);
             bgObjective = node.gameObject;
             return true;
         }
+
+        // Non-volunteer / saturated / busy — occasional one-shot decline bark.
+        BgOrderRegistry::TrySpeakBgOrderAck(bot, botAI, *order, false);
     }
 
     BgNodeRef node;
@@ -2006,6 +2010,10 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
+            // --- Player orders + autonomous spread (before combat detours when independence on) ---
+            if (!BgObjective && BgOrderRegistry::GetEffectiveIndependenceLevel() >= 1)
+                TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
+
             // --- Nearby Enemy ---
             if (!BgObjective && urand(0, 99) < BgOrderRegistry::GetEnemyDetourChance(BATTLEGROUND_AV))
             {
@@ -2020,7 +2028,7 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- Snowfall ---
+            // --- Snowfall / residual priority path ---
             if (!BgObjective)
                 TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
 
@@ -2215,15 +2223,15 @@ bool BGTactics::selectObjective(bool reset)
         {
             Position target;
             TeamId team = bot->GetTeamId();
+            BattlegroundWS* ws = static_cast<BattlegroundWS*>(bg);
 
-            // Utility to safely relocate a position with optional random radius
             auto SetSafePos = [&](Position const& origin, float radius = 0.0f) -> void
             {
                 float rx, ry, rz;
                 if (radius > 0.0f)
                 {
                     bot->GetRandomPoint(origin, radius, rx, ry, rz);
-                    if (rz == VMAP_INVALID_HEIGHT_VALUE)
+                    if (rz != VMAP_INVALID_HEIGHT_VALUE)
                         target.Relocate(rx, ry, rz);
                     else
                         target.Relocate(origin);
@@ -2234,146 +2242,124 @@ bool BGTactics::selectObjective(bool reset)
                 }
             };
 
-            // Check if the bot is carrying the flag
+            auto SetUnitPos = [&](Unit* unit) -> void
+            {
+                if (!unit)
+                    return;
+                target.Relocate(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
+            };
+
+            // Player callouts take priority over autonomous flag brain.
+            if (TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective))
+                return true;
+
             bool hasFlag = bot->HasAura(BG_WS_SPELL_WARSONG_FLAG) || bot->HasAura(BG_WS_SPELL_SILVERWING_FLAG);
 
-            // Retrieve role
             uint8 role = context->GetValue<uint32>("bg role")->Get();
             WSBotStrategy strategyHorde = static_cast<WSBotStrategy>(GetBotStrategyForTeam(bg, TEAM_HORDE));
             WSBotStrategy strategyAlliance = static_cast<WSBotStrategy>(GetBotStrategyForTeam(bg, TEAM_ALLIANCE));
             WSBotStrategy strategy = (team == TEAM_ALLIANCE) ? strategyAlliance : strategyHorde;
             WSBotStrategy enemyStrategy = (team == TEAM_ALLIANCE) ? strategyHorde : strategyAlliance;
 
-            uint8 defendersProhab = 3;  // Default balanced
-
-            switch (static_cast<uint8>(strategy))
-            {
-                case 0:
-                case 1:
-                case 2:
-                case 3:  // Balanced
-                    defendersProhab = 3;
-                    break;
-                case 4:
-                case 5:
-                case 6:
-                case 7:  // Heavy Offense
-                    defendersProhab = 1;
-                    break;
-                case 8:
-                case 9:  // Heavy Defense
-                    defendersProhab = 6;
-                    break;
-            }
+            uint8 defendersProhab = 3;
+            if (strategy == WS_STRATEGY_OFFENSIVE)
+                defendersProhab = 1;
+            else if (strategy == WS_STRATEGY_DEFENSIVE)
+                defendersProhab = 6;
 
             if (enemyStrategy == WS_STRATEGY_DEFENSIVE)
                 defendersProhab = 2;
 
-            // Role check
             bool isDefender = role < defendersProhab;
 
-            // Retrieve flag carriers
             Unit* enemyFC = AI_VALUE(Unit*, "enemy flag carrier");
             Unit* teamFC = AI_VALUE(Unit*, "team flag carrier");
 
-            // Retrieve current score
-            uint8 allianceScore = bg->GetTeamScore(TEAM_ALLIANCE);
-            uint8 hordeScore = bg->GetTeamScore(TEAM_HORDE);
+            TeamId ownTeam = team;
+            TeamId enemyTeam = bg->GetOtherTeamId(team);
+            uint8 ownFlagState = ws->GetFlagState(ownTeam);
+            uint8 enemyFlagState = ws->GetFlagState(enemyTeam);
 
-            // Check if both teams currently have the flag
-            bool bothFlagsTaken = enemyFC && teamFC;
-            if (!hasFlag && bothFlagsTaken)
+            // Carrying enemy flag: hide if own flag is taken, otherwise run home to cap.
+            if (hasFlag)
             {
-                // If both flags taken: Bots have 20% chance to support own flag carrier, otherwise attack enemy FC
-                if (urand(0, 99) < 20 && teamFC)
-                {
-                    target.Relocate(teamFC->GetPositionX(), teamFC->GetPositionY(), teamFC->GetPositionZ());
-                    if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
-                        Follow(teamFC);
-                }
-                else
-                    target.Relocate(enemyFC->GetPositionX(), enemyFC->GetPositionY(), enemyFC->GetPositionZ());
-            }
-            // Graveyard Camping if in lead
-            else if (!hasFlag && role < 8 &&
-                ((team == TEAM_ALLIANCE && allianceScore == 2 && hordeScore == 0) ||
-                (team == TEAM_HORDE && hordeScore == 2 && allianceScore == 0)))
-            {
-                if (team == TEAM_ALLIANCE)
-                    SetSafePos(WS_GY_CAMPING_HORDE, 10.0f);
-                else
-                    SetSafePos(WS_GY_CAMPING_ALLIANCE, 10.0f);
-            }
-            else if (hasFlag)
-            {
-                // If carrying the flag, either hide or return to base
                 if (team == TEAM_ALLIANCE)
                     SetSafePos(teamFlagTaken() ? WS_FLAG_HIDE_ALLIANCE[urand(0, 2)] : WS_FLAG_POS_ALLIANCE);
                 else
                     SetSafePos(teamFlagTaken() ? WS_FLAG_HIDE_HORDE[urand(0, 2)] : WS_FLAG_POS_HORDE);
             }
+            // 1) Own flag on ground — return it.
+            else if (ownFlagState == BG_WS_FLAG_STATE_ON_GROUND)
+            {
+                if (GameObject* groundFlag = bg->GetBgMap()->GetGameObject(ws->GetDroppedFlagGUID(ownTeam)))
+                    target.Relocate(groundFlag->GetPosition());
+                else
+                    SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE);
+            }
+            // 2) Enemy FC visible — chase (majority when both flags taken).
+            else if (enemyFC)
+            {
+                bool escortInstead = false;
+                if (teamFC && enemyFC)
+                {
+                    // Minority escort when both flags taken and escort not saturated.
+                    if (!BgOrderRegistry::IsNodeSaturated(bg, team, teamFC->GetPosition()) &&
+                        urand(0, 99) < 25)
+                        escortInstead = true;
+                }
+
+                if (escortInstead && teamFC)
+                {
+                    SetUnitPos(teamFC);
+                    if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
+                        Follow(teamFC);
+                }
+                else
+                    SetUnitPos(enemyFC);
+            }
+            // 3) Friendly FC — escort if not saturated.
+            else if (teamFC && !BgOrderRegistry::IsNodeSaturated(bg, team, teamFC->GetPosition()))
+            {
+                SetUnitPos(teamFC);
+                if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
+                    Follow(teamFC);
+            }
+            // 4) Enemy flag at base/ground — pick it up.
+            else if (enemyFlagState == BG_WS_FLAG_STATE_ON_BASE || enemyFlagState == BG_WS_FLAG_STATE_ON_GROUND)
+            {
+                SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE);
+            }
+            // 5) Defenders hold own base; attackers push enemy base. Roam only as last resort.
+            else if (isDefender)
+            {
+                SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE, 8.0f);
+            }
             else
             {
-                if (isDefender)
+                SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE);
+            }
+
+            // Optional 2-0 GY camp only when flags are secure at base (close out, don't abandon).
+            if (!hasFlag && !enemyFC && ownFlagState == BG_WS_FLAG_STATE_ON_BASE &&
+                enemyFlagState == BG_WS_FLAG_STATE_ON_BASE && role < 8)
+            {
+                uint8 allianceScore = bg->GetTeamScore(TEAM_ALLIANCE);
+                uint8 hordeScore = bg->GetTeamScore(TEAM_HORDE);
+                if ((team == TEAM_ALLIANCE && allianceScore == 2 && hordeScore == 0) ||
+                    (team == TEAM_HORDE && hordeScore == 2 && allianceScore == 0))
                 {
-                    if (enemyFC)
-                    {
-                        // Defenders attack enemy FC if found
-                        target.Relocate(enemyFC->GetPositionX(), enemyFC->GetPositionY(), enemyFC->GetPositionZ());
-                    }
-                    else if (urand(0, 99) < 33)
-                    {
-                        // 33% chance to roam near own base
-                        SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_HIDE_ALLIANCE[urand(0, 2)] : WS_FLAG_HIDE_HORDE[urand(0, 2)], 5.0f);
-                    }
-                    else if (teamFC)
-                    {
-                        // 70% chance to support own FC
-                        if (urand(0, 99) < 70)
-                        {
-                            target.Relocate(teamFC->GetPositionX(), teamFC->GetPositionY(), teamFC->GetPositionZ());
-                            if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
-                                Follow(teamFC);
-                        }
-                    }
+                    if (team == TEAM_ALLIANCE)
+                        SetSafePos(WS_GY_CAMPING_HORDE, 10.0f);
                     else
-                    {
-                        // Roam around central area
-                        SetSafePos(WS_ROAM_POS, 75.0f);
-                    }
-                }
-                else  // attacker logic
-                {
-                    if (enemyFC && urand(0, 99) < 70)
-                    {
-                        // 70% chance to pursue enemy FC
-                        target.Relocate(enemyFC->GetPositionX(), enemyFC->GetPositionY(), enemyFC->GetPositionZ());
-                    }
-                    else if (teamFC)
-                    {
-                        // Assist own FC if not pursuing enemy FC
-                        target.Relocate(teamFC->GetPositionX(), teamFC->GetPositionY(), teamFC->GetPositionZ());
-                        if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
-                            Follow(teamFC);
-                    }
-                    else if (urand(0, 99) < sPlayerbotAIConfig.bgChaseEnemyChance)
-                    {
-                        // 5% chance to free roam
-                        SetSafePos(WS_ROAM_POS, 75.0f);
-                    }
-                    else
-                    {
-                        // Push toward enemy flag base
-                        SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE);
-                    }
+                        SetSafePos(WS_GY_CAMPING_ALLIANCE, 10.0f);
                 }
             }
 
-            // Save the final target position
             if (target.IsPositionValid())
             {
                 pos.Set(target.GetPositionX(), target.GetPositionY(), target.GetPositionZ(), bot->GetMapId());
                 posMap["bg objective"] = pos;
+                botAI->bgObjectiveSetTime = GameTime::GetGameTime().count();
                 return true;
             }
 
@@ -2403,12 +2389,17 @@ bool BGTactics::selectObjective(bool reset)
                 defendersProhab = 2;
 
             bool isDefender = role < defendersProhab;
-            bool isSilly = urand(0, 99) < 20;
+            // HardMode / independence: never pick the farthest node on purpose.
+            bool isSilly = BgOrderRegistry::GetEffectiveIndependenceLevel() == 0 && urand(0, 99) < 20;
 
             BgObjective = nullptr;
 
-            // --- PRIORITY 1: Nearby enemy (rare aggressive impulse)
-            if (urand(0, 99) < BgOrderRegistry::GetAbEnemyDetourChance())
+            // Player orders + autonomous spread before combat detours when independence is on.
+            if (BgOrderRegistry::GetEffectiveIndependenceLevel() >= 1)
+                TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
+
+            // --- PRIORITY 1: Nearby enemy (rare aggressive impulse) ---
+            if (!BgObjective && urand(0, 99) < BgOrderRegistry::GetAbEnemyDetourChance())
             {
                 if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
                 {
@@ -2437,7 +2428,7 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            if (!hasValidTarget)
+            if (!hasValidTarget && !BgObjective)
             {
                 if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
                 {
@@ -2513,6 +2504,55 @@ bool BGTactics::selectObjective(bool reset)
                     BgObjective = contestedObjective;
                 else if (secureObjective && urand(0, 99) < BgOrderRegistry::GetDefenderRollForSecureNode())
                     BgObjective = secureObjective;
+            }
+
+            // Prefer contested/neutral over enemy occupied when scoring attack pool under independence.
+            if (!BgObjective && BgOrderRegistry::GetEffectiveIndependenceLevel() >= 2)
+            {
+                float bestScore = FLT_MAX;
+                GameObject* best = nullptr;
+                for (uint32 nodeId : AB_AttackObjectives)
+                {
+                    uint8 state = ab->GetCapturePointInfo(nodeId)._state;
+                    bool isNeutral = state == BG_AB_NODE_STATE_NEUTRAL;
+                    bool isFriendlyContested =
+                        (team == TEAM_ALLIANCE && state == BG_AB_NODE_STATE_ALLY_CONTESTED) ||
+                        (team == TEAM_HORDE && state == BG_AB_NODE_STATE_HORDE_CONTESTED);
+                    bool isEnemyOccupied = (team == TEAM_ALLIANCE && state == BG_AB_NODE_STATE_HORDE_OCCUPIED) ||
+                                           (team == TEAM_HORDE && state == BG_AB_NODE_STATE_ALLY_OCCUPIED);
+                    bool isEnemyContested =
+                        (team == TEAM_ALLIANCE && state == BG_AB_NODE_STATE_HORDE_CONTESTED) ||
+                        (team == TEAM_HORDE && state == BG_AB_NODE_STATE_ALLY_CONTESTED);
+
+                    if (!(isNeutral || isFriendlyContested || isEnemyOccupied || isEnemyContested))
+                        continue;
+
+                    GameObject* go = bg->GetBGObject(nodeId * BG_AB_OBJECTS_PER_NODE);
+                    if (!go)
+                        continue;
+
+                    Position nodePos = go->GetPosition();
+                    if (BgOrderRegistry::IsNodeSaturated(bg, team, nodePos))
+                        continue;
+
+                    float score = bot->GetDistance(go);
+                    score += float(BgOrderRegistry::CountFriendliesNearNode(
+                                      bg, team, nodePos, sPlayerbotAIConfig.bgNodeRadius)) *
+                             sPlayerbotAIConfig.bgSaturationPenalty;
+                    if (isFriendlyContested || isEnemyContested)
+                        score *= 0.45f;
+                    else if (isNeutral)
+                        score *= 0.7f;
+
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        best = go;
+                    }
+                }
+
+                if (best)
+                    BgObjective = best;
             }
 
             // --- PRIORITY 5: Attack objectives ---
@@ -2708,7 +2748,58 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- PRIORITY 2: Nearby unowned contested node ---
+            // --- PRIORITY 2: Flag game (FC chase / center flag / escort) ---
+            if (!foundObjective)
+            {
+                bool flagFocus = strategy == EY_STRATEGY_FLAG_FOCUS ||
+                                 BgOrderRegistry::GetEffectiveIndependenceLevel() >= 1;
+
+                if (Unit* enemyFC = AI_VALUE(Unit*, "enemy flag carrier"))
+                {
+                    if (enemyFC->IsAlive() &&
+                        (flagFocus || bot->CanSeeOrDetect(enemyFC, false, false, true)))
+                    {
+                        pos.Set(enemyFC->GetPositionX(), enemyFC->GetPositionY(), enemyFC->GetPositionZ(),
+                                bot->GetMapId());
+                        foundObjective = true;
+                    }
+                }
+
+                if (!foundObjective)
+                {
+                    if (GameObject* flag = bg->GetBGObject(BG_EY_OBJECT_FLAG_NETHERSTORM); flag && flag->isSpawned())
+                    {
+                        // Prefer center flag when flag-focus strategy or few owned nodes.
+                        uint32 ownedCount = 0;
+                        for (uint8 point = 0; point < EY_POINTS_MAX; ++point)
+                            if (IsOwned(point))
+                                ++ownedCount;
+
+                        if (flagFocus || ownedCount <= 1 || strategy == EY_STRATEGY_FLAG_FOCUS)
+                        {
+                            pos.Set(flag->GetPositionX(), flag->GetPositionY(), flag->GetPositionZ(),
+                                    flag->GetMapId());
+                            foundObjective = true;
+                        }
+                    }
+                }
+
+                if (!foundObjective)
+                {
+                    if (Unit* friendlyFC = AI_VALUE(Unit*, "team flag carrier"))
+                    {
+                        if (friendlyFC->IsAlive() &&
+                            !BgOrderRegistry::IsNodeSaturated(bg, team, friendlyFC->GetPosition()))
+                        {
+                            pos.Set(friendlyFC->GetPositionX(), friendlyFC->GetPositionY(),
+                                    friendlyFC->GetPositionZ(), bot->GetMapId());
+                            foundObjective = true;
+                        }
+                    }
+                }
+            }
+
+            // --- PRIORITY 3: Nearby unowned contested node ---
             if (!foundObjective)
             {
                 for (auto const& [nodeId, _, __] : EY_AttackObjectives)
@@ -2728,12 +2819,13 @@ bool BGTactics::selectObjective(bool reset)
                         rz = bot->GetMap()->GetHeight(rx, ry, rz);
                         pos.Set(rx, ry, rz, bot->GetMapId());
                         foundObjective = true;
+                        break;
                     }
                 }
             }
 
-            // --- PRIORITY 3: Random nearby enemy (20%) ---
-            if (!foundObjective && urand(0, 99) < 20)
+            // --- PRIORITY 4: Random nearby enemy (legacy only) ---
+            if (!foundObjective && BgOrderRegistry::GetEffectiveIndependenceLevel() == 0 && urand(0, 99) < 20)
             {
                 if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
                 {
@@ -2745,7 +2837,7 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- PRIORITY 3.5: Player orders + autonomous spread ---
+            // --- PRIORITY 4.5: Player orders + autonomous spread ---
             if (!foundObjective)
             {
                 WorldObject* eyObjective = nullptr;
@@ -2753,43 +2845,10 @@ bool BGTactics::selectObjective(bool reset)
                     foundObjective = true;
             }
 
-            // --- PRIORITY 4: Defender Logic ---
+            // --- PRIORITY 5: Defender Logic ---
             if (!foundObjective && isDefender && urand(0, 99) <= 80)
             {
-                // 1. Chase enemy flag carrier
-                if (Unit* enemyFC = AI_VALUE(Unit*, "enemy flag carrier"))
-                {
-                    if (bot->CanSeeOrDetect(enemyFC, false, false, true) && enemyFC->IsAlive())
-                    {
-                        pos.Set(enemyFC->GetPositionX(), enemyFC->GetPositionY(), enemyFC->GetPositionZ(), bot->GetMapId());
-                        foundObjective = true;
-                    }
-                }
-
-                // 2. Support friendly flag carrier
-                if (!foundObjective)
-                {
-                    if (Unit* friendlyFC = AI_VALUE(Unit*, "team flag carrier"))
-                    {
-                        if (friendlyFC->IsAlive())
-                        {
-                            pos.Set(friendlyFC->GetPositionX(), friendlyFC->GetPositionY(), friendlyFC->GetPositionZ(), bot->GetMapId());
-                            foundObjective = true;
-                        }
-                    }
-                }
-
-                // 3. Pick up the flag
-                if (!foundObjective)
-                {
-                    if (GameObject* flag = bg->GetBGObject(BG_EY_OBJECT_FLAG_NETHERSTORM); flag && flag->isSpawned())
-                    {
-                        pos.Set(flag->GetPositionX(), flag->GetPositionY(), flag->GetPositionZ(), flag->GetMapId());
-                        foundObjective = true;
-                    }
-                }
-
-                // 4. Default: defend owned node
+                // Default: defend owned node (FC/flag already handled above)
                 if (!foundObjective && urand(0, 99) < 50)
                 {
                     std::vector<uint32> owned;

@@ -158,14 +158,14 @@ Unit* GrindTargetValue::FindTargetForGrinding(uint32 assistCount)
                     continue;
             }
 
-            if (!questNeeded)
-            {
-                if (mobLevel < minMobLevel)
-                    continue;
+            // Quest kills get a slightly wider floor only; never pull far-grey packs for leftovers.
+            int32 const questMinMobLevel = std::max(1, minMobLevel - 2);
+            int32 const floorLevel = questNeeded ? questMinMobLevel : minMobLevel;
+            if (mobLevel < floorLevel)
+                continue;
 
-                if (mobLevel > maxMobLevel)
-                    continue;
-            }
+            if (mobLevel > maxMobLevel)
+                continue;
 
             // Prefer mid-band (near progression level) over highest-in-band; then nearer.
             float const levelDelta = float(std::abs(mobLevel - int32(progressionLevel)));
@@ -239,6 +239,9 @@ bool GrindTargetValue::needForQuest(Unit* target)
         if (PlayerbotGroupProgression::IsQuestTrivialForLevel(questLevelRef, questTemplate))
             continue;
 
+        if (PlayerbotGroupProgression::IsQuestBelowProgressionLevel(questLevelRef, questTemplate))
+            continue;
+
         uint32 questId = questTemplate->GetQuestId();
         if (!questId)
             continue;
@@ -268,13 +271,15 @@ bool GrindTargetValue::needForQuest(Unit* target)
         }
     }
 
-    if (CreatureTemplate const* data = sObjectMgr->GetCreatureTemplate(target->GetEntry()))
+    // Quest loot only counts when the bot still has a worthwhile progression quest.
+    if (PlayerbotGroupProgression::HasValidProgressionQuest(bot))
     {
-        if (uint32 lootId = data->lootid)
+        if (CreatureTemplate const* data = sObjectMgr->GetCreatureTemplate(target->GetEntry()))
         {
-            if (LootTemplates_Creature.HaveQuestLootForPlayer(lootId, bot))
+            if (uint32 lootId = data->lootid)
             {
-                return true;
+                if (LootTemplates_Creature.HaveQuestLootForPlayer(lootId, bot))
+                    return true;
             }
         }
     }

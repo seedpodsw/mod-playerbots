@@ -878,18 +878,13 @@ WorldPosition TravelPath::getNextPoint(WorldPosition startPos, float maxDist, Tr
         return startP->point;
     }
 
-    // We are moving towards transport. Teleport to next normal point instead.
+    // At a transport/elevator node: signal the caller to board and ride.
+    // (Previously this teleported past the hop, which skipped elevators entirely.)
     if (startP->type == NODE_TRANSPORT)
     {
-        for (auto p = startP + 1; p != ed; p++)
-        {
-            if (p->type != NODE_TRANSPORT)
-            {
-                pathType = TravelNodePathType::portal;
-                entry = 0;
-                return p->point;
-            }
-        }
+        pathType = TravelNodePathType::transport;
+        entry = startP->entry;
+        return startP->point;
     }
 
     // We have to move far for next point. Try to make a cropped path.

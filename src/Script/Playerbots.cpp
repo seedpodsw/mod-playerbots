@@ -22,7 +22,9 @@
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "DatabaseLoader.h"
+#include "Group.h"
 #include "GuildTaskMgr.h"
+#include "LFGMgr.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotGuildMgr.h"
@@ -31,6 +33,7 @@
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "PlayerbotCommandScript.h"
+#include "Timer.h"
 #include "cmath"
 #include "BattleGroundTactics.h"
 
@@ -459,6 +462,46 @@ public:
             return true;
 
         return botAI->IsRealPlayer();
+    }
+
+    bool OnPlayerbotShouldUpdatePlayer(Player* player) override
+    {
+        if (!player)
+            return true;
+
+        PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
+        if (!botAI || botAI->IsRealPlayer())
+            return true;
+
+        // Always update bots that must stay responsive.
+        if (player->IsInCombat())
+            return true;
+
+        uint32 const mapId = player->GetMapId();
+        bool const overworld = (mapId == 0 || mapId == 1 || mapId == 530 || mapId == 571);
+        if (!overworld)
+            return true;
+
+        if (player->InBattlegroundQueue())
+            return true;
+
+        if (sLFGMgr->GetState(player->GetGUID()) != lfg::LFG_STATE_NONE)
+            return true;
+
+        Group* group = player->GetGroup();
+        if (group && sLFGMgr->GetState(group->GetGUID()) != lfg::LFG_STATE_NONE)
+            return true;
+
+        // AllowActivity covers rotation, force-near-player, masters, etc. (cached ~4.5s).
+        if (botAI->AllowActivity())
+            return true;
+
+        uint32 skip = sPlayerbotAIConfig.inactiveBotUpdateSkip;
+        if (skip <= 1)
+            return true;
+
+        uint32 const slot = player->GetGUID().GetCounter() + (getMSTime() / 50);
+        return (slot % skip) == 0;
     }
 
     void OnPlayerbotPacketSent(Player* player, WorldPacket const* packet) override

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iomanip>
+#include <list>
 #include <string>
 
 #include "Corpse.h"
@@ -36,9 +37,73 @@
 #include "SpellInfo.h"
 #include "Stances.h"
 #include "Timer.h"
+#include "Transport.h"
+#include "TravelNode.h"
 #include "Unit.h"
 #include "Vehicle.h"
 #include "WaypointMovementGenerator.h"
+
+namespace
+{
+constexpr float STATIC_TRANSPORT_MIN_DZ = 18.0f;
+constexpr float STATIC_TRANSPORT_ARRIVE_Z_TOLERANCE = 8.0f;
+constexpr float STATIC_TRANSPORT_BOARD_RANGE = 12.0f;
+constexpr float STATIC_TRANSPORT_SEARCH_RANGE = 40.0f;
+
+Transport* FindTransportByEntryNear(Player* bot, uint32 entry, float range)
+{
+    if (!bot || !bot->GetMap() || !entry)
+        return nullptr;
+
+    std::list<GameObject*> gameObjects;
+    bot->GetGameObjectListWithEntryInGrid(gameObjects, entry, range);
+    for (GameObject* go : gameObjects)
+    {
+        if (!go)
+            continue;
+        if (Transport* transport = go->ToTransport())
+            return transport;
+    }
+
+    for (Transport* transport : bot->GetMap()->GetAllTransports())
+    {
+        if (!transport || transport->GetEntry() != entry)
+            continue;
+        if (bot->GetDistance(transport) <= range)
+            return transport;
+    }
+
+    return nullptr;
+}
+
+bool FindTransportArrival(TravelPath& path, uint32 entry, WorldPosition const& nearPos, WorldPosition& arrivalOut)
+{
+    auto const points = path.getPath();
+    if (points.size() < 2)
+        return false;
+
+    float bestDist = FLT_MAX;
+    bool found = false;
+
+    for (size_t i = 0; i + 1 < points.size(); ++i)
+    {
+        if (points[i].type != NODE_TRANSPORT || points[i].entry != entry)
+            continue;
+        if (points[i + 1].type != NODE_TRANSPORT || points[i + 1].entry != entry)
+            continue;
+
+        float const dist = nearPos.distance(points[i].point);
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            arrivalOut = points[i + 1].point;
+            found = true;
+        }
+    }
+
+    return found;
+}
+}  // namespace
 
 MovementAction::MovementAction(PlayerbotAI* botAI, std::string const name) : Action(botAI, name)
 {

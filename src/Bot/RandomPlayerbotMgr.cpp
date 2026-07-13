@@ -350,10 +350,20 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     // which prevents unneeded expensive GameTime calls.
     if (_isBotInitializing)
     {
-        _isBotInitializing = GameTime::GetUptime().count() < sPlayerbotAIConfig.maxRandomBots * (0.11 + 0.4);
+        uint32 const maxAllowed = GetMaxAllowedBotCount();
+        float const ratio = sPlayerbotAIConfig.randomBotInitCompleteRatio > 0.f
+                                ? sPlayerbotAIConfig.randomBotInitCompleteRatio
+                                : 0.95f;
+        bool const filledEnough =
+            maxAllowed > 0 && onlineBotCount >= static_cast<uint32>(maxAllowed * ratio + 0.5f);
+        bool const uptimeExpired =
+            GameTime::GetUptime().count() >=
+            static_cast<time_t>(sPlayerbotAIConfig.maxRandomBots * (0.11 + 0.4));
+        if (filledEnough || uptimeExpired)
+            _isBotInitializing = false;
     }
 
-    uint32 updateIntervalTurboBoost = _isBotInitializing ? 1 : sPlayerbotAIConfig.randomBotUpdateInterval;
+    uint32 updateIntervalTurboBoost = GetInitAwareUpdateInterval();
     SetNextCheckDelay(updateIntervalTurboBoost * (onlineBotFocus + 25) * 10);
 
     PerfMonitorOperation* pmo = sPerfMonitor.start(
@@ -500,7 +510,93 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     }
 
     MaybeFlushDirtyEventCache();
+    MaybeRebuildForceActiveByRadiusCache();
     sPlayerbotAIConfig.LogDbPerfStatsIfDue();
+}
+
+void RandomPlayerbotMgr::MaybeRebuildForceActiveByRadiusCache()
+{
+    uint32 const radius = sPlayerbotAIConfig.BotActiveAloneForceWhenInRadius;
+    uint32 const maxBots = sPlayerbotAIConfig.BotActiveAloneForceWhenInRadiusMax;
+
+    // Radius disabled or unlimited → no capped set needed.
+    if (!radius || !maxBots)
+    {
+        forceActiveByRadiusGuids.clear();
+        forceActiveByRadiusRebuildMs = 0;
+        return;
+    }
+
+    uint32 const now = getMSTime();
+    if (forceActiveByRadiusRebuildMs && getMSTimeDiff(forceActiveByRadiusRebuildMs, now) < 2000)
+        return;
+
+    forceActiveByRadiusRebuildMs = now;
+    forceActiveByRadiusGuids.clear();
+
+    if (players.empty() || playerBots.empty())
+        return;
+
+    float const sqRange = static_cast<float>(radius) * static_cast<float>(radius);
+
+    for (Player* realPlayer : players)
+    {
+        if (!realPlayer || !realPlayer->IsInWorld())
+            continue;
+
+        if (realPlayer->IsGameMaster() && !realPlayer->isGMVisible())
+            continue;
+
+        uint32 const mapId = realPlayer->GetMapId();
+        WorldPosition realPos(realPlayer);
+        std::vector<std::pair<float, ObjectGuid>> candidates;
+        candidates.reserve(64);
+
+        for (auto const& entry : playerBots)
+        {
+            Player* bot = entry.second;
+            if (!bot || !bot->IsInWorld() || bot->GetMapId() != mapId)
+                continue;
+
+            float const sq = realPos.sqDistance(WorldPosition(bot));
+            if (sq >= sqRange)
+                continue;
+
+            candidates.emplace_back(sq, bot->GetGUID());
+        }
+
+        uint32 const take = std::min<uint32>(maxBots, static_cast<uint32>(candidates.size()));
+        if (!take)
+            continue;
+
+        std::partial_sort(candidates.begin(), candidates.begin() + take, candidates.end(),
+                          [](auto const& a, auto const& b) { return a.first < b.first; });
+
+        for (uint32 i = 0; i < take; ++i)
+            forceActiveByRadiusGuids.insert(candidates[i].second);
+    }
+}
+
+bool RandomPlayerbotMgr::IsForceActiveByRadius(ObjectGuid guid)
+{
+    MaybeRebuildForceActiveByRadiusCache();
+
+    // Unlimited mode: caller uses distance check only.
+    if (!sPlayerbotAIConfig.BotActiveAloneForceWhenInRadiusMax)
+        return true;
+
+    return forceActiveByRadiusGuids.find(guid) != forceActiveByRadiusGuids.end();
+}
+
+uint32 RandomPlayerbotMgr::GetInitAwareUpdateInterval() const
+{
+    if (!_isBotInitializing)
+        return sPlayerbotAIConfig.randomBotUpdateInterval;
+
+    uint32 initInterval =
+        sPlayerbotAIConfig.randomBotInitUpdateInterval ? sPlayerbotAIConfig.randomBotInitUpdateInterval : 5;
+    uint32 softInit = std::max(initInterval, sPlayerbotAIConfig.randomBotUpdateInterval / 3);
+    return softInit < 1 ? 1 : softInit;
 }
 
 // void RandomPlayerbotMgr::ScaleBotActivity()
@@ -1632,7 +1728,7 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
         AddPlayerBot(botGUID, 0);
         randomTime = urand(1, 2);
 
-        uint32 randomBotUpdateInterval = _isBotInitializing ? 1 : sPlayerbotAIConfig.randomBotUpdateInterval;
+        uint32 randomBotUpdateInterval = GetInitAwareUpdateInterval();
         randomTime = urand(std::max(5, static_cast<int>(randomBotUpdateInterval * 0.5)),
                            std::max(12, static_cast<int>(randomBotUpdateInterval * 2)));
         SetEventValue(bot, "update", 1, randomTime);
@@ -3670,7 +3766,7 @@ bool RandomPlayerbotMgr::TryHandleBgTeamOrderChat(Player* player, std::string co
     if (!BgOrderRegistry::ResolveNode(bg, player->GetTeamId(), nodeToken, node))
     {
         ChatHandler(player->GetSession())
-            .PSendSysMessage("|cffff0000Could not find node '%s' in this battleground.", nodeToken.c_str());
+            .PSendSysMessage("|cffff0000Could not find node '{}' in this battleground.", nodeToken);
         return true;
     }
 
@@ -3685,8 +3781,8 @@ bool RandomPlayerbotMgr::TryHandleBgTeamOrderChat(Player* player, std::string co
     SetBgTeamOrder(order);
 
     ChatHandler(player->GetSession())
-        .PSendSysMessage("|cff00ff00Team order: %s %s (%u sec).",
-                         action == BgOrderAction::Defend ? "defend" : "attack", nodeToken.c_str(),
+        .PSendSysMessage("|cff00ff00Team order: {} {} ({} sec).",
+                         action == BgOrderAction::Defend ? "defend" : "attack", nodeToken,
                          sPlayerbotAIConfig.bgOrderDurationSec);
     return true;
 }

@@ -156,6 +156,8 @@ public:
     float randomBotRpgChance;
     uint32 minRandomBots, maxRandomBots;
     uint32 randomBotUpdateInterval, randomBotCountChangeMinInterval, randomBotCountChangeMaxInterval;
+    uint32 randomBotInitUpdateInterval;
+    float randomBotInitCompleteRatio;
     uint32 minRandomBotInWorldTime, maxRandomBotInWorldTime;
     uint32 minRandomBotRandomizeTime, maxRandomBotRandomizeTime;
     uint32 minRandomBotChangeStrategyTime, maxRandomBotChangeStrategyTime;
@@ -301,6 +303,8 @@ public:
     bool fastReactInBG;
     bool hardModeBG;
     uint32 bgOrderDurationSec;
+    uint32 bgOrderVolunteerPct;
+    uint32 bgOrderAckDeclinePct;
     uint32 bgObjectiveStaleSec;
     uint32 bgMaxBotsPerNode;
     float bgNodeRadius;
@@ -376,6 +380,7 @@ public:
     uint32 botActiveAlone;
     uint32 BotActiveAloneDurationSeconds;
     uint32 BotActiveAloneForceWhenInRadius;
+    uint32 BotActiveAloneForceWhenInRadiusMax;
     bool BotActiveAloneForceWhenInZone;
     bool BotActiveAloneForceWhenInMap;
     bool BotActiveAloneForceWhenIsFriend;
@@ -385,6 +390,10 @@ public:
     uint32 botActiveAloneSmartScaleDiffLimitCeiling;
     uint32 botActiveAloneSmartScaleWhenMinLevel;
     uint32 botActiveAloneSmartScaleWhenMaxLevel;
+    uint32 botPacketsPerTick;
+    uint32 botPacketsPerWorldTick;
+    uint32 botPacketsPerWorldTickInit;
+    uint32 inactiveBotUpdateSkip;
 
     bool freeMethodLoot;
     int32 lootNeedRollLevel;

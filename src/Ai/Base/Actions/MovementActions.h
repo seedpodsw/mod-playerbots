@@ -65,6 +65,9 @@ protected:
     Position BestPositionForRangedToFlee(Position pos, float radius);
     bool FleePosition(Position pos, float radius, uint32 minInterval = 1000);
     bool CheckLastFlee(float curAngle, std::list<FleeInfo>& infoList);
+    // Ride static elevators/trams (TB, Freewind, etc.) when |ΔZ| requires a transport hop.
+    bool HandleStaticTransportToward(uint32 mapId, float x, float y, float z,
+                                     MovementPriority priority = MovementPriority::MOVEMENT_NORMAL);
 
 protected:
     struct CheckAngle

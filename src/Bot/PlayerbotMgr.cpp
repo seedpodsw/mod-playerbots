@@ -255,11 +255,21 @@ void PlayerbotHolder::HandlePlayerBotLoginCallback(PlayerbotLoginQueryHolder con
 
 void PlayerbotHolder::UpdateSessions()
 {
-    for (PlayerBotMap::const_iterator itr = GetPlayerBotsBegin(); itr != GetPlayerBotsEnd(); ++itr)
+    if (playerBots.empty())
+        return;
+
+    uint32 budget = sRandomPlayerbotMgr.IsBotInitializing() ? sPlayerbotAIConfig.botPacketsPerWorldTickInit
+                                                           : sPlayerbotAIConfig.botPacketsPerWorldTick;
+    if (!budget)
+        budget = sRandomPlayerbotMgr.IsBotInitializing() ? 1000 : 2000;
+
+    uint32 const perBot =
+        sPlayerbotAIConfig.botPacketsPerTick ? sPlayerbotAIConfig.botPacketsPerTick : 50;
+
+    auto processBot = [&](Player* bot) -> bool
     {
-        Player* const bot = itr->second;
         if (!bot || !bot->GetSession())
-            continue;
+            return true;
 
         PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
 
@@ -269,26 +279,88 @@ void PlayerbotHolder::UpdateSessions()
             botAI->HandleTeleportAck();
 
         if (!bot->IsBeingTeleported() && bot->IsInWorld())
-            HandleBotPackets(bot->GetSession());
+        {
+            uint32 const allow = std::min(perBot, budget);
+            if (!allow)
+                return false;
+
+            uint32 const used = HandleBotPackets(bot->GetSession(), allow);
+            if (used >= budget)
+            {
+                budget = 0;
+                return false;
+            }
+            budget -= used;
+        }
+
+        return budget > 0;
+    };
+
+    bool pastResume = _sessionResumeGuid.IsEmpty();
+    for (auto const& entry : playerBots)
+    {
+        if (!pastResume)
+        {
+            if (entry.first != _sessionResumeGuid)
+                continue;
+            pastResume = true;
+        }
+
+        if (!processBot(entry.second))
+        {
+            // Resume at the next bot next tick for fairness.
+            auto next = playerBots.upper_bound(entry.first);
+            _sessionResumeGuid = (next != playerBots.end()) ? next->first : ObjectGuid::Empty;
+            return;
+        }
     }
+
+    if (!_sessionResumeGuid.IsEmpty())
+    {
+        for (auto const& entry : playerBots)
+        {
+            if (entry.first == _sessionResumeGuid)
+                break;
+
+            if (!processBot(entry.second))
+            {
+                auto next = playerBots.upper_bound(entry.first);
+                _sessionResumeGuid = (next != playerBots.end()) ? next->first : ObjectGuid::Empty;
+                return;
+            }
+        }
+    }
+
+    _sessionResumeGuid = ObjectGuid::Empty;
 }
 
-void PlayerbotHolder::HandleBotPackets(WorldSession* session)
+uint32 PlayerbotHolder::HandleBotPackets(WorldSession* session, uint32 maxPackets)
 {
+    if (!maxPackets)
+        return 0;
+
     WorldPacket* packet;
+    uint32 processed = 0;
+
     while (session->GetPacketQueue().next(packet))
     {
         OpcodeClient opcode = static_cast<OpcodeClient>(packet->GetOpcode());
         ClientOpcodeHandler const* opHandle = opcodeTable[opcode];
         if (!opHandle)
         {
-            LOG_ERROR("playerbots", "Unhandled opcode {} queued for bot session {}. Packet dropped.", static_cast<uint32>(opcode), session->GetAccountId());
+            LOG_ERROR("playerbots", "Unhandled opcode {} queued for bot session {}. Packet dropped.",
+                      static_cast<uint32>(opcode), session->GetAccountId());
             delete packet;
             continue;
         }
         opHandle->Call(session, *packet);
         delete packet;
+
+        if (++processed >= maxPackets)
+            break;
     }
+
+    return processed;
 }
 
 void PlayerbotHolder::LogoutAllBots()

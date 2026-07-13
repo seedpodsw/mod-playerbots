@@ -49,6 +49,7 @@ bool TryParseOrder(std::string msg, BgOrderAction& action, std::string& nodeToke
 
 bool ResolveNode(Battleground* bg, TeamId team, std::string const& nodeToken, BgNodeRef& out);
 bool ResolveNodeById(Battleground* bg, BattlegroundTypeId bgType, uint32 nodeId, BgNodeRef& out);
+bool ResolveNodeById(Battleground* bg, BattlegroundTypeId bgType, uint32 nodeId, BgNodeRef& out, TeamId team);
 
 BattlegroundTypeId GetEffectiveBgType(Battleground* bg);
 
@@ -57,10 +58,13 @@ bool IsNodeContested(Battleground* bg, BattlegroundTypeId bgType, TeamId team, u
 bool IsNodeSecure(Battleground* bg, BattlegroundTypeId bgType, TeamId team, uint32 nodeId);
 bool IsNodeSaturated(Battleground* bg, TeamId team, Position const& pos);
 
-bool ShouldFulfillTeamOrder(Battleground* bg, TeamId team, BgTeamOrder const& order);
+bool ShouldFulfillTeamOrder(Player* bot, Battleground* bg, TeamId team, BgTeamOrder const& order);
 bool TrySelectTeamOrderObjective(Player* bot, Battleground* bg, BgTeamOrder const& order, BgNodeRef& out);
 bool TrySelectAutonomousObjective(Player* bot, PlayerbotAI* botAI, Battleground* bg, BgNodeRef& out,
                                   BgOrderAction& suggestedAction);
+
+// One-shot accept/decline chat for player callouts (Say / Party / Raid).
+void TrySpeakBgOrderAck(Player* bot, PlayerbotAI* botAI, BgTeamOrder const& order, bool accepted);
 
 void AssignObjectivePosition(Player* bot, PlayerbotAI* botAI, PositionMap& posMap, BgNodeRef const& node);
 

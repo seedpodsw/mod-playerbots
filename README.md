@@ -29,7 +29,7 @@ This fork extends upstream `master` with ambient random-bot grouping, open-world
 - **No BG queue while grouped** — nearby-group bots never receive the `bg` strategy ([`AiFactory.cpp`](src/Bot/Factory/AiFactory.cpp), [`BattleGroundJoinAction.cpp`](src/Ai/Base/Actions/BattleGroundJoinAction.cpp)).
 - **Real-player friendly**: bots can leave ambient groups for player invites; promote-on-leave; `CMSG_GROUP_DISBAND` for clean party exit.
 - **Progression-aware**: bots leave stale nearby groups, respect rejoin cooldown, and can relocate the whole party to a level hub when walk fails.
-- **Tunable in config** — see `AiPlayerbot.RandomBotGroupNearby*` keys in [`conf/playerbots.conf.dist`](conf/playerbots.conf.dist) (default **off**; set `RandomBotGroupNearby = 1` to enable).
+- **Tunable in config** — see `AiPlayerbot.RandomBotGroupNearby*` keys in [`conf/playerbots.conf.dist`](conf/playerbots.conf.dist) (default **on**; Solo-heavy roles, ambient parties capped at 2–3).
 
 ### Open-world quest progression (solo + grouped)
 
@@ -39,7 +39,7 @@ This fork extends upstream `master` with ambient random-bot grouping, open-world
 - **Tight grind level band** (min slack / max progression+2, mid-band scoring) so XP is not wasted on wrong-level mobs.
 - **Wrong-zone hard relocate** — if the current zone bracket is below progression level (e.g. ~27 in Barrens), solo/leaders leave via flight → level-appropriate hub, else teleport; non-quest grind in that zone is skipped.
 - **Quest/grind course scoring** — quest pick prefers near-level XP value; grind camps stay in level-appropriate zones (cross-zone same-map when escaping).
-- **Ambient parties favor 2–3** (Leader4/5 weights default 0; invite target clamped) so group XP dilution stays limited — enable `RandomBotGroupNearby = 1` to see this.
+- **Ambient parties favor 2–3** (Leader4/5 weights default 0; invite target clamped) so group XP dilution stays limited — `RandomBotGroupNearby = 1` by default.
 - Starter **zone brackets** and RPG weight defaults added to [`conf/playerbots.conf.dist`](conf/playerbots.conf.dist).
 - **Eyeball check:** after a long uptime (~18h), max bot level should clearly beat a low ceiling (e.g. stuck ~27–28); also watch zone spread and small party sizes.
 
@@ -66,6 +66,62 @@ This fork extends upstream `master` with ambient random-bot grouping, open-world
 - **Smaller login bursts** (`RandomBotsPerInterval = 25`, was 60) — fewer bots processed per manager tick.
 - Optional **DB perf stats** logging (`DbPerfStatsEnabled`, `DbPerfStatsLogInterval`) for tuning large bot counts.
 - Tip in dist: raise `Save.Interval` in `worldserver.conf` (e.g. 900–1800) for fewer core character saves.
+- Scan-heavy AI values (`possible targets`, `grind target`, nearby player lists) cache for a few seconds and invalidate on combat entry — cuts idle CPU without dulling combat.
+- Pathing caps idle `MoveRandomNear` attempts; quest travel searches stay distance-bounded.
+
+#### Baseline (before changing capacity knobs)
+
+1. On a staging shard, set `AiPlayerbot.PerfMonEnabled = 1` and `AiPlayerbot.DbPerfStatsEnabled = 1`.
+2. Run a known online count (≈1k, then ≈3k) for several minutes of mixed idle/combat.
+3. GM: `.pmon` (also `.pmon full` / `.pmon stack`) — record top triggers/actions/values.
+4. Note `DbPerfStats` INFO lines every `DbPerfStatsLogInterval` seconds.
+5. Turn both monitors back to `0` for production. Compare rankings after capacity changes.
+
+#### 10k capacity profile
+
+Small shards can keep the fork quality defaults (`BotActiveAlone = 100`, `DynamicReactDelay = 0`). For **~9–10k concurrent online** bots, apply this profile in `playerbots.conf` (and worldserver/MySQL):
+
+```ini
+# playerbots.conf — capacity + cast responsiveness toward ~10k online
+AiPlayerbot.BotActiveAlone = 30
+AiPlayerbot.botActiveAloneSmartScale = 1
+AiPlayerbot.botActiveAloneSmartScaleDiffLimitfloor = 25
+AiPlayerbot.DynamicReactDelay = 1
+AiPlayerbot.BotActiveAloneForceWhenInRadius = 50
+AiPlayerbot.BotActiveAloneForceWhenInRadiusMax = 40
+AiPlayerbot.BotPacketsPerTick = 50
+AiPlayerbot.BotPacketsPerWorldTick = 2000
+AiPlayerbot.BotPacketsPerWorldTickInit = 1000
+AiPlayerbot.InactiveBotUpdateSkip = 4
+AiPlayerbot.RandomBotInitUpdateInterval = 5
+AiPlayerbot.RandomBotInitCompleteRatio = 0.95
+AiPlayerbot.RandomBotEventPersistInterval = 60
+AiPlayerbot.RandomBotLogoutSavesPerInterval = 8
+AiPlayerbot.RandomBotRepositoryDirtyOnly = 1
+AiPlayerbot.AllowedLogFiles = ""
+```
+
+```ini
+# worldserver.conf — primary Character DB save pressure for online bots
+Save.Interval = 900
+# or 1800 on very large populations
+```
+
+- Install MySQL tuning from [`conf/my.ini.recommended`](conf/my.ini.recommended) via [`conf/install-my.ini.bat`](conf/install-my.ini.bat) (`skip-log-bin`, `innodb_flush_log_at_trx_commit=2`, adequate `max_connections`).
+- Never enable `player_location.csv` (or other per-bot CSVs) in `AllowedLogFiles` at 10k — each manager tick rewrites the file for every online bot.
+- Keep `PerfMonEnabled` / `DbPerfStatsEnabled` off outside tuning sessions.
+
+#### Cast latency at high bot count
+
+Spell casts feel delayed on a **local** server when many bots share the world tick — not because of network RTT. Real-player `CMSG_CAST_SPELL` is handled in `Map::Update` after bot packet drains and among other players on the map; long ticks = late casts.
+
+**Checklist / A/B:**
+1. Apply the 10k profile above (especially `BotActiveAlone=30`, `ForceWhenInRadius=50`, SmartScale floor `25`).
+2. Quick isolate: set `BotActiveAloneForceWhenInRadius=0`, cast in a busy zone — if casts snap back, local force-active was the hotspot.
+3. Watch **p95/p99** world update time (not mean CPU). Brief `PerfMonEnabled=1` + `.pmon` if needed.
+4. `BotPacketsPerTick` / `BotPacketsPerWorldTick` cap bot opcode drain before your cast; `ForceWhenInRadiusMax` limits nearby full-AI wakes.
+5. Core `Map::Update` runs real players first; distant inactive bots skip most `Player::Update` ticks (`InactiveBotUpdateSkip`).
+6. Soft login ramp (`RandomBotInitUpdateInterval` / `InitCompleteRatio`) avoids pegging the world thread while filling to 9–10k.
 
 ### Config changes in `playerbots.conf.dist`
 
@@ -75,6 +131,7 @@ This fork ships tuned defaults in [`conf/playerbots.conf.dist`](conf/playerbots.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
+| `RandomBotGroupNearby` | **1** | Ambient open-world bot parties while leveling (Solo-heavy; max 2–3) |
 | `RandomBotGroupNearbyGrouperWeight.*` | Solo 42 / Member 38 / Leader2–3 12–8 / Leader4–5 **0** | Stable social-role weights; ambient parties favor 2–3 |
 | `RandomBotGroupNearbyMemberJoinChance` | 75 | % chance member-role bots accept ambient invites |
 | `RandomBotGroupNearbyInviteChance` | 50 | % chance leaders attempt a nearby invite per tick |
@@ -92,6 +149,13 @@ This fork ships tuned defaults in [`conf/playerbots.conf.dist`](conf/playerbots.
 | `RandomBotRepositoryDirtyOnly` | 1 | Skip repository save on logout if AI unchanged |
 | `DbPerfStatsEnabled` | 0 | Log DB perf counters periodically |
 | `DbPerfStatsLogInterval` | 300 | Seconds between DB perf log lines |
+| `BotActiveAloneForceWhenInRadiusMax` | 40 | Max bots force-active by radius per real player (0 = unlimited) |
+| `BotPacketsPerTick` | 50 | Max bot packets drained per bot per world tick |
+| `BotPacketsPerWorldTick` | 2000 | Global bot packet budget per tick (fair rotate) |
+| `BotPacketsPerWorldTickInit` | 1000 | Global budget while bot pool is filling |
+| `InactiveBotUpdateSkip` | 4 | Distant inactive bots update every Nth tick |
+| `RandomBotInitUpdateInterval` | 5 | Soft manager interval during login ramp |
+| `RandomBotInitCompleteRatio` | 0.95 | Leave init early when this fraction of max bots is online |
 
 #### Changed defaults (vs upstream `master`)
 
@@ -121,13 +185,14 @@ This fork ships tuned defaults in [`conf/playerbots.conf.dist`](conf/playerbots.
 | `AlmostFullHealth` | 85 | **70** |
 | `MediumMana` | 40 | **25** |
 
-**Active-bot scaling (near real players)**
+**Active-bot scaling (independent leveling)**
 
 | Key | Upstream | This fork |
 |-----|----------|-----------|
-| `BotActiveAlone` | 10 | **60** (% of bots active when alone) |
+| `BotActiveAlone` | 10 | **100** (bots keep leveling when alone) |
 | `BotActiveAloneDurationSeconds` | 30 | **45** |
 | `BotActiveAloneForceWhenInRadius` | 150 | **200** |
+| `BotActiveAloneForceWhenInZone` | 1 | **0** (avoids zone-wide wake / inn dump on player enter) |
 
 **New RPG strategy (open-world behavior)**
 

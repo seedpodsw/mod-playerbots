@@ -542,23 +542,24 @@ std::string const WorldPosition::getAreaName(bool fullName, bool zoneName)
     return areaName;
 }
 
-std::set<Transport*> WorldPosition::getTransports(uint32 /*entry*/)
+std::set<Transport*> WorldPosition::getTransports(uint32 entry)
 {
-    /*
-    if (!entry)
-        return getMap()->m_transports;
-    else
-    {
-    */
     std::set<Transport*> transports;
-    /*
-    for (auto transport : getMap()->m_transports)
-        if (transport->GetEntry() == entry)
-            transports.insert(transport);
 
-    return transports;
-}
-*/
+    Map* map = getMap();
+    if (!map)
+        return transports;
+
+    // Motion transports (boats / zeppelins) live on the map transport set.
+    for (Transport* transport : map->GetAllTransports())
+    {
+        if (!transport)
+            continue;
+        if (entry && transport->GetEntry() != entry)
+            continue;
+        transports.insert(transport);
+    }
+
     return transports;
 }
 

@@ -181,6 +181,11 @@ public:
     Player* GetRandomPlayer();
     std::vector<Player*> GetPlayers() { return players; };
     PlayerBotMap GetAllBots() { return playerBots; };
+    // Nearest-N force-active-by-radius cache (cast-latency at high bot counts).
+    bool IsForceActiveByRadius(ObjectGuid guid);
+    void MaybeRebuildForceActiveByRadiusCache();
+    bool IsBotInitializing() const { return _isBotInitializing; }
+    uint32 GetInitAwareUpdateInterval() const;
     void PrintStats();
     double GetBuyMultiplier(Player* bot);
     double GetSellMultiplier(Player* bot);
@@ -324,6 +329,8 @@ private:
     std::unordered_map<uint32, BotEventCache> eventCache;
     std::unordered_set<std::string> dirtyEvents;
     time_t eventPersistLastFlush = 0;
+    std::unordered_set<ObjectGuid> forceActiveByRadiusGuids;
+    uint32 forceActiveByRadiusRebuildMs = 0;
     std::list<uint32> currentBots;
     uint32 bgBotsCount;
     uint32 playersLevel;

@@ -39,7 +39,8 @@ public:
 
     void UpdateAIInternal([[maybe_unused]] uint32 elapsed, [[maybe_unused]] bool minimal = false) override{};
     void UpdateSessions();
-    void HandleBotPackets(WorldSession* session);
+    // Returns packets processed. Honors per-bot and remaining global budget.
+    uint32 HandleBotPackets(WorldSession* session, uint32 maxPackets);
 
     void LogoutAllBots();
     void QueueLogoutPlayerBot(ObjectGuid guid);
@@ -62,6 +63,7 @@ protected:
     PlayerBotMap playerBots;
     static std::unordered_map<ObjectGuid, uint32> botLoading;
     std::deque<ObjectGuid> pendingLogoutBots;
+    ObjectGuid _sessionResumeGuid;
 };
 
 class PlayerbotMgr : public PlayerbotHolder

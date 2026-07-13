@@ -18,7 +18,10 @@ LastMovement::LastMovement(LastMovement& other)
       lastMoveToX(other.lastMoveToX),
       lastMoveToY(other.lastMoveToY),
       lastMoveToZ(other.lastMoveToZ),
-      lastMoveToOri(other.lastMoveToOri)
+      lastMoveToOri(other.lastMoveToOri),
+      transportEntry(other.transportEntry),
+      transportArriveZ(other.transportArriveZ),
+      transportArrivePos(other.transportArrivePos)
 {
     lastMoveShort = other.lastMoveShort;
     nextTeleport = other.nextTeleport;
@@ -42,6 +45,7 @@ void LastMovement::clear()
     msTime = 0;
     lastdelayTime = 0;
     priority = MovementPriority::MOVEMENT_NORMAL;
+    clearTransportRide();
 }
 
 void LastMovement::Set(Unit* follow)
@@ -73,3 +77,17 @@ void LastMovement::setShort(WorldPosition point)
 }
 
 void LastMovement::setPath(TravelPath path) { lastPath = path; }
+
+void LastMovement::setTransportRide(uint32 entry, float arriveZ, WorldPosition arrivePos)
+{
+    transportEntry = entry;
+    transportArriveZ = arriveZ;
+    transportArrivePos = arrivePos;
+}
+
+void LastMovement::clearTransportRide()
+{
+    transportEntry = 0;
+    transportArriveZ = 0.0f;
+    transportArrivePos = WorldPosition();
+}

@@ -5028,14 +5028,18 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
             if (checkZone && !(isGM && !player->IsVisible()) && player->GetZoneId() == botZoneId)
                 return true;
 
-            // radius check
+            // radius check — optionally limited to nearest N bots per real player
             if (checkRadius && (!isGM || player->isGMVisible()))
             {
-                if (botPos.sqDistance(WorldPosition(player)) < sqRange)
-                    return true;
+                bool inRange = botPos.sqDistance(WorldPosition(player)) < sqRange;
+                if (!inRange)
+                {
+                    WorldObject* viewObj = player->GetViewpoint();
+                    if (viewObj && viewObj != player)
+                        inRange = botPos.sqDistance(WorldPosition(viewObj)) < sqRange;
+                }
 
-                WorldObject* viewObj = player->GetViewpoint();
-                if (viewObj && viewObj != player && botPos.sqDistance(WorldPosition(viewObj)) < sqRange)
+                if (inRange && sRandomPlayerbotMgr.IsForceActiveByRadius(bot->GetGUID()))
                     return true;
             }
         }

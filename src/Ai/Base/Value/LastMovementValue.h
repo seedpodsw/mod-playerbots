@@ -39,6 +39,9 @@ public:
         lastPath = other.lastPath;
         nextTeleport = other.nextTeleport;
         priority = other.priority;
+        transportEntry = other.transportEntry;
+        transportArriveZ = other.transportArriveZ;
+        transportArrivePos = other.transportArrivePos;
         return *this;
     };
 
@@ -49,6 +52,8 @@ public:
 
     void setShort(WorldPosition point);
     void setPath(TravelPath path);
+    void setTransportRide(uint32 entry, float arriveZ, WorldPosition arrivePos);
+    void clearTransportRide();
 
     std::vector<uint32> taxiNodes;
     ObjectGuid taxiMaster;
@@ -67,6 +72,10 @@ public:
     TravelPath lastPath;
     time_t nextTeleport;
     std::future<TravelPath> future;
+    // Static elevator / tram ride in progress (GO entry + expected arrival).
+    uint32 transportEntry = 0;
+    float transportArriveZ = 0.0f;
+    WorldPosition transportArrivePos;
 };
 
 class LastMovementValue : public ManualSetValue<LastMovement&>

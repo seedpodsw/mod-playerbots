@@ -632,6 +632,7 @@ public:
     bool wasInCombat = false;
     time_t bgObjectiveSetTime = 0;
     uint32 bgLastNodeId = 0;
+    uint64_t bgLastAckOrderKey = 0;
 
     // Schedules a callback to run once after <delayMs> milliseconds.
     void AddTimedEvent(std::function<void()> callback, uint32 delayMs);

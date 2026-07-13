@@ -929,6 +929,10 @@ AiPlayerbot.BotActiveAloneDurationSeconds = 45
 # These override the percentage above. If any of these conditions is true, the bot stays active.
 #
 # InRadius  - A real player is within this many yards (set to 0 to disable).
+#             At high bot counts prefer 50 (see 10k profile) — 200 wakes entire camps around you
+#             and delays real-player spell casts on the same map tick.
+# InRadiusMax - Max bots that may be force-active via InRadius per real player (nearest first).
+#             0 = unlimited (legacy). 40 recommended at ~9–10k online.
 # InZone    - A real player is in the same zone (e.g. Elwynn Forest).
 #             Off by default here: zone-wide force wakes every bot in the zone when you
 #             enter (e.g. Barrens inn dump). Prefer InRadius for "bots feel alive nearby."
@@ -941,6 +945,7 @@ AiPlayerbot.BotActiveAloneDurationSeconds = 45
 #   grouped with a real player, or controlled by a real player.
 #
 AiPlayerbot.BotActiveAloneForceWhenInRadius = 200
+AiPlayerbot.BotActiveAloneForceWhenInRadiusMax = 40
 AiPlayerbot.BotActiveAloneForceWhenInZone = 0
 AiPlayerbot.BotActiveAloneForceWhenInMap = 0
 AiPlayerbot.BotActiveAloneForceWhenIsFriend = 0
@@ -950,7 +955,7 @@ AiPlayerbot.BotActiveAloneForceWhenInGuild = 1
 # Monitors the server's update time (how long each server tick takes in milliseconds).
 # When the server slows down, fewer bots are kept active to reduce load.
 #
-#   Floor (default 50ms)   - Below this, no reduction. Server is running fine.
+#   Floor (default 50ms; use 25 at ~9–10k for earlier cast-latency relief)
 #   Ceiling (default 200ms) - At or above this, all non-forced bots are paused.
 #   Between floor and ceiling, activity scales down gradually.
 #     Example: BotActiveAlone=10, floor=50, ceiling=200
@@ -967,6 +972,21 @@ AiPlayerbot.botActiveAloneSmartScaleDiffLimitfloor = 50
 AiPlayerbot.botActiveAloneSmartScaleDiffLimitCeiling = 200
 AiPlayerbot.botActiveAloneSmartScaleWhenMinLevel = 1
 AiPlayerbot.botActiveAloneSmartScaleWhenMaxLevel = 80
+
+# Max packets drained from each bot session per world tick (HandleBotPackets).
+# Unbounded drain runs before Map::Update and delays real-player CMSG_CAST_SPELL.
+# Default: 50 (core real sessions use 150). Raise only if bots miss teleports/LFG acks.
+AiPlayerbot.BotPacketsPerTick = 50
+
+# Global packet budget across ALL bots per world tick (fair rotate when exhausted).
+# Init budget applies while the bot pool is still filling.
+# Defaults: 2000 steady / 1000 during init
+AiPlayerbot.BotPacketsPerWorldTick = 2000
+AiPlayerbot.BotPacketsPerWorldTickInit = 1000
+
+# Distant inactive bots: only run Map session + Player::Update every Nth tick (staggered).
+# Combat / near-player / AllowActivity bots always update. 1 = never skip. Default: 4 (~25%).
+AiPlayerbot.InactiveBotUpdateSkip = 4
 
 #
 #
@@ -1418,12 +1438,19 @@ AiPlayerbot.FastReactInBG = 1
 #
 # Master switch for pro-tier BG behavior: faster combat react, higher PvP priority, offensive strategy bias,
 # bot independence (spread/rotate without player orders), and anti-stall objective lifecycle.
-# Default: 0 (legacy). Set to 1 for recommended pro preset (also sets BgIndependenceLevel=2 when unset).
-AiPlayerbot.HardModeBG = 0
+# Default: 1 (recommended). Set to 0 for legacy behavior.
+AiPlayerbot.HardModeBG = 1
 
-# Team-wide player callouts in BG (any real player on your team): "bg defend stables", "bg attack farm",
-# or shorthand "defend farm" / "attack blacksmith" in party, raid, say, or yell.
+# Team-wide player callouts in BG (any real player on your team) in party, raid, say, or yell:
+#   AB/AV/IC/EY: "bg defend stables", "bg attack farm", or shorthand "defend farm" / "attack blacksmith"
+#   WSG: "bg attack flag", "bg defend mid", "bg attack fc", "bg defend base", "attack ownflag"
+# Only this percent of bots volunteer for a callout (stable per bot+order); the rest keep other objectives.
+# 0 = ignore callouts, 100 = everyone (still capped by BgMaxBotsPerNode). Default: 25
 AiPlayerbot.BgOrderDurationSec = 120
+AiPlayerbot.BgOrderVolunteerPct = 25
+# Of bots that do NOT take the callout, this percent bark a one-shot busy/defend line (stable hash).
+# 0 = silent declines, 100 = all non-volunteers speak once. Default: 15
+AiPlayerbot.BgOrderAckDeclinePct = 15
 
 # Anti-stall: force objective refresh after this many seconds on the same node.
 AiPlayerbot.BgObjectiveStaleSec = 45
@@ -1436,7 +1463,7 @@ AiPlayerbot.BgNodeRadius = 15.0
 AiPlayerbot.BgRotateAfterCap = 1
 
 # Bot independence without player orders: 0=legacy, 1=normal spread, 2=pro (default when HardModeBG=1).
-AiPlayerbot.BgIndependenceLevel = 0
+AiPlayerbot.BgIndependenceLevel = 2
 AiPlayerbot.BgSaturationPenalty = 25.0
 AiPlayerbot.BgContestRadarRange = 80.0
 
@@ -1444,11 +1471,12 @@ AiPlayerbot.BgContestRadarRange = 80.0
 AiPlayerbot.BgReactDelay = 100
 AiPlayerbot.BgAttackPriority = 75
 AiPlayerbot.BgEnemyAggroRange = 100
-AiPlayerbot.BgChaseEnemyChance = 30
+# Keep chase lower so flag/node capture is not starved by mid fights.
+AiPlayerbot.BgChaseEnemyChance = 20
 AiPlayerbot.BgDefaultStrategyBias = 65
 AiPlayerbot.BgCombatObjectivePush = 1
-AiPlayerbot.BgAbEnemyDetourChance = 25
-AiPlayerbot.BgAvEnemyDetourChance = 35
+AiPlayerbot.BgAbEnemyDetourChance = 15
+AiPlayerbot.BgAvEnemyDetourChance = 25
 
 #
 #
@@ -1461,6 +1489,13 @@ AiPlayerbot.BgAvEnemyDetourChance = 35
 # How often (in seconds) the randombot manager runs its main update loop
 # Default: 20
 AiPlayerbot.RandomBotUpdateInterval = 30
+
+# Soft login/ramp pacing (replaces hard interval=1 during init).
+# InitUpdateInterval: manager delay while filling the bot pool (also max(this, UpdateInterval/3)).
+# InitCompleteRatio: leave init early when online bots reach this fraction of MaxAllowedBotCount.
+# Defaults: 5, 0.95
+AiPlayerbot.RandomBotInitUpdateInterval = 5
+AiPlayerbot.RandomBotInitCompleteRatio = 0.95
 
 # Minimum and maximum seconds before the manager re-evaluates and adjusts total randombot count
 # Defaults: 1800 (min), 7200 (max)
@@ -2459,11 +2494,20 @@ AiPlayerbot.AllowedLogFiles = ""
 # 10k CAPACITY PROFILE (optional — apply in playerbots.conf for large populations)
 #
 # Small shards may keep fork defaults (BotActiveAlone=100, DynamicReactDelay=0).
-# For ~10k concurrent online bots, copy these into playerbots.conf after surgical CPU fixes:
+# For ~9–10k concurrent online bots, copy these into playerbots.conf after surgical CPU fixes:
 #
 #   AiPlayerbot.BotActiveAlone = 30
 #   AiPlayerbot.botActiveAloneSmartScale = 1
+#   AiPlayerbot.botActiveAloneSmartScaleDiffLimitfloor = 25
 #   AiPlayerbot.DynamicReactDelay = 1
+#   AiPlayerbot.BotActiveAloneForceWhenInRadius = 50
+#   AiPlayerbot.BotActiveAloneForceWhenInRadiusMax = 40
+#   AiPlayerbot.BotPacketsPerTick = 50
+#   AiPlayerbot.BotPacketsPerWorldTick = 2000
+#   AiPlayerbot.BotPacketsPerWorldTickInit = 1000
+#   AiPlayerbot.InactiveBotUpdateSkip = 4
+#   AiPlayerbot.RandomBotInitUpdateInterval = 5
+#   AiPlayerbot.RandomBotInitCompleteRatio = 0.95
 #   AiPlayerbot.RandomBotEventPersistInterval = 60
 #   AiPlayerbot.RandomBotLogoutSavesPerInterval = 8
 #   AiPlayerbot.RandomBotRepositoryDirtyOnly = 1
@@ -2476,8 +2520,12 @@ AiPlayerbot.AllowedLogFiles = ""
 # MySQL: install conf/my.ini.recommended via conf/install-my.ini.bat
 # (skip-log-bin, innodb_flush_log_at_trx_commit=2, adequate max_connections).
 #
+# Cast latency A/B: set ForceWhenInRadius=0 briefly — if casts feel sharp again, local
+# force-active + tick queue was the cause. Prefer p95/p99 world diff over mean CPU.
+# Rebuild worldserver after Map.cpp / PlayerbotScript hook changes.
+#
 # Baseline: temporarily enable PerfMonEnabled + DbPerfStatsEnabled; GM `.pmon`; then disable.
-# See README.md "10k capacity profile".
+# See README.md "10k capacity profile" / "Cast latency at high bot count".
 #
 ####################################################################################################
 

@@ -14,10 +14,14 @@
 #include "BattlegroundAV.h"
 #include "BattlegroundEY.h"
 #include "BattlegroundIC.h"
+#include "BattlegroundWS.h"
 #include "GameObject.h"
 #include "GameTime.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotTextMgr.h"
 #include "PositionValue.h"
 
 namespace
@@ -59,6 +63,13 @@ static std::vector<BgNodeAliasEntry> const nodeAliases = {
     {BATTLEGROUND_IC, NODE_TYPE_WORKSHOP, {"workshop"}},
     {BATTLEGROUND_IC, NODE_TYPE_DOCKS, {"docks", "dock"}},
     {BATTLEGROUND_IC, NODE_TYPE_HANGAR, {"hangar"}},
+
+    // Warsong Gulch pseudo-nodes (position objectives, not capture points).
+    {BATTLEGROUND_WS, 1001, {"flag", "enemyflag", "enemy flag"}},
+    {BATTLEGROUND_WS, 1002, {"ownflag", "own flag", "return"}},
+    {BATTLEGROUND_WS, 1003, {"mid", "middle"}},
+    {BATTLEGROUND_WS, 1004, {"base", "home"}},
+    {BATTLEGROUND_WS, 1005, {"fc", "flagcarrier", "flag carrier"}},
 };
 
 std::string NormalizeToken(std::string value)
@@ -277,10 +288,89 @@ bool BgOrderRegistry::TryParseOrder(std::string msg, BgOrderAction& action, std:
     return false;
 }
 
+bool ResolveWsNode(Battleground* bg, TeamId team, uint32 nodeId, BgNodeRef& out)
+{
+    if (!bg || team == TEAM_NEUTRAL)
+        return false;
+
+    BattlegroundWS* ws = static_cast<BattlegroundWS*>(bg);
+    TeamId enemyTeam = bg->GetOtherTeamId(team);
+
+    Position const WS_FLAG_HORDE = {915.958f, 1433.925f, 346.193f, 0.0f};
+    Position const WS_FLAG_ALLIANCE = {1539.219f, 1481.747f, 352.458f, 0.0f};
+    Position const WS_MID = {1227.446f, 1476.235f, 307.484f, 1.50f};
+
+    out.nodeId = nodeId;
+    out.gameObject = nullptr;
+
+    switch (nodeId)
+    {
+        case 1001:  // enemy flag room
+            out.position = (team == TEAM_ALLIANCE) ? WS_FLAG_HORDE : WS_FLAG_ALLIANCE;
+            if (GameObject* go = bg->GetBGObject(team == TEAM_ALLIANCE ? BG_WS_OBJECT_H_FLAG : BG_WS_OBJECT_A_FLAG))
+            {
+                out.gameObject = go;
+                out.position = go->GetPosition();
+            }
+            return true;
+        case 1002:  // own flag / return
+            if (ws->GetFlagState(team) == BG_WS_FLAG_STATE_ON_GROUND)
+            {
+                if (GameObject* ground = bg->GetBgMap()->GetGameObject(ws->GetDroppedFlagGUID(team)))
+                {
+                    out.gameObject = ground;
+                    out.position = ground->GetPosition();
+                    return true;
+                }
+            }
+            out.position = (team == TEAM_ALLIANCE) ? WS_FLAG_ALLIANCE : WS_FLAG_HORDE;
+            if (GameObject* go = bg->GetBGObject(team == TEAM_ALLIANCE ? BG_WS_OBJECT_A_FLAG : BG_WS_OBJECT_H_FLAG))
+            {
+                out.gameObject = go;
+                out.position = go->GetPosition();
+            }
+            return true;
+        case 1003:  // mid
+            out.position = WS_MID;
+            return true;
+        case 1004:  // base
+            out.position = (team == TEAM_ALLIANCE) ? WS_FLAG_ALLIANCE : WS_FLAG_HORDE;
+            return true;
+        case 1005:  // enemy FC
+        {
+            ObjectGuid fcGuid = ws->GetFlagPickerGUID(enemyTeam);
+            if (fcGuid.IsEmpty())
+                return false;
+
+            if (Player* fc = ObjectAccessor::FindPlayer(fcGuid))
+            {
+                out.position = fc->GetPosition();
+                return true;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 bool BgOrderRegistry::ResolveNodeById(Battleground* bg, BattlegroundTypeId bgType, uint32 nodeId, BgNodeRef& out)
+{
+    return ResolveNodeById(bg, bgType, nodeId, out, TEAM_NEUTRAL);
+}
+
+bool BgOrderRegistry::ResolveNodeById(Battleground* bg, BattlegroundTypeId bgType, uint32 nodeId, BgNodeRef& out,
+                                      TeamId team)
 {
     if (!bg)
         return false;
+
+    if (bgType == BATTLEGROUND_WS)
+    {
+        if (team == TEAM_NEUTRAL)
+            return false;
+        return ResolveWsNode(bg, team, nodeId, out);
+    }
 
     GameObject* go = nullptr;
     switch (bgType)
@@ -310,7 +400,7 @@ bool BgOrderRegistry::ResolveNodeById(Battleground* bg, BattlegroundTypeId bgTyp
     return true;
 }
 
-bool BgOrderRegistry::ResolveNode(Battleground* bg, TeamId /*team*/, std::string const& nodeToken, BgNodeRef& out)
+bool BgOrderRegistry::ResolveNode(Battleground* bg, TeamId team, std::string const& nodeToken, BgNodeRef& out)
 {
     if (!bg)
         return false;
@@ -326,7 +416,7 @@ bool BgOrderRegistry::ResolveNode(Battleground* bg, TeamId /*team*/, std::string
         for (std::string const& alias : entry.aliases)
         {
             if (MatchAlias(normalized, alias))
-                return ResolveNodeById(bg, bgType, entry.nodeId, out);
+                return ResolveNodeById(bg, bgType, entry.nodeId, out, team);
         }
     }
 
@@ -455,20 +545,38 @@ bool BgOrderRegistry::IsNodeSecure(Battleground* bg, BattlegroundTypeId bgType, 
     }
 }
 
-bool BgOrderRegistry::ShouldFulfillTeamOrder(Battleground* bg, TeamId team, BgTeamOrder const& order)
+bool BgOrderRegistry::ShouldFulfillTeamOrder(Player* bot, Battleground* bg, TeamId team, BgTeamOrder const& order)
 {
-    if (!bg || order.action == BgOrderAction::None)
+    if (!bot || !bg || order.action == BgOrderAction::None)
         return false;
 
     if (order.expireTime <= GameTime::GetGameTime().count())
         return false;
+
+    // Only a configured share of bots answer callouts; the rest keep other objectives.
+    uint32 const volunteerPct = sPlayerbotAIConfig.bgOrderVolunteerPct;
+    if (volunteerPct == 0)
+        return false;
+
+    if (volunteerPct < 100)
+    {
+        uint64_t hash = bot->GetGUID().GetCounter();
+        hash ^= (uint64_t(order.instanceId) << 32);
+        hash ^= uint64_t(order.nodeId) * 0x9e3779b97f4a7c15ULL;
+        hash ^= uint64_t(static_cast<uint8>(order.action)) * 0xbf58476d1ce4e5b9ULL;
+        hash ^= hash >> 33;
+        hash *= 0xff51afd7ed558ccdULL;
+        hash ^= hash >> 33;
+        if ((hash % 100) >= volunteerPct)
+            return false;
+    }
 
     BattlegroundTypeId bgType = GetEffectiveBgType(bg);
     if (order.action == BgOrderAction::Defend && IsNodeSecure(bg, bgType, team, order.nodeId))
         return false;
 
     BgNodeRef node;
-    if (!ResolveNodeById(bg, bgType, order.nodeId, node))
+    if (!ResolveNodeById(bg, bgType, order.nodeId, node, team))
         return false;
 
     if (IsNodeSaturated(bg, team, node.position))
@@ -480,10 +588,92 @@ bool BgOrderRegistry::ShouldFulfillTeamOrder(Battleground* bg, TeamId team, BgTe
 bool BgOrderRegistry::TrySelectTeamOrderObjective(Player* bot, Battleground* bg, BgTeamOrder const& order,
                                                   BgNodeRef& out)
 {
-    if (!bot || !bg || !ShouldFulfillTeamOrder(bg, bot->GetTeamId(), order))
+    if (!bot || !bg || !ShouldFulfillTeamOrder(bot, bg, bot->GetTeamId(), order))
         return false;
 
-    return ResolveNodeById(bg, GetEffectiveBgType(bg), order.nodeId, out);
+    return ResolveNodeById(bg, GetEffectiveBgType(bg), order.nodeId, out, bot->GetTeamId());
+}
+
+namespace
+{
+uint64_t MakeAckKey(BgTeamOrder const& order)
+{
+    return BgOrderRegistry::MakeOrderKey(order.instanceId, order.teamId) ^ (uint64_t(order.nodeId) << 8) ^
+           uint64_t(static_cast<uint8>(order.action));
+}
+
+void EmitBgOrderChat(PlayerbotAI* botAI, std::string const& text)
+{
+    if (!botAI || text.empty())
+        return;
+
+    if (botAI->SayToRaid(text))
+        return;
+
+    if (botAI->SayToParty(text))
+        return;
+
+    botAI->Say(text);
+}
+
+bool ShouldSpeakDecline(Player* bot, BgTeamOrder const& order)
+{
+    uint32 const declinePct = sPlayerbotAIConfig.bgOrderAckDeclinePct;
+    if (declinePct == 0)
+        return false;
+
+    if (declinePct >= 100)
+        return true;
+
+    // Different salt from volunteer hash so decline chat is not the same 25% cohort.
+    uint64_t hash = bot->GetGUID().GetCounter() ^ 0xA5A5A5A5ULL;
+    hash ^= (uint64_t(order.instanceId) << 17);
+    hash ^= uint64_t(order.nodeId) * 0x27d4eb2d459cffd1ULL;
+    hash ^= uint64_t(static_cast<uint8>(order.action)) * 0x94d049bb133111ebULL;
+    hash ^= hash >> 33;
+    hash *= 0xc4ceb9fe1a85ec53ULL;
+    hash ^= hash >> 33;
+    return (hash % 100) < declinePct;
+}
+}  // namespace
+
+void BgOrderRegistry::TrySpeakBgOrderAck(Player* bot, PlayerbotAI* botAI, BgTeamOrder const& order, bool accepted)
+{
+    if (!bot || !botAI || order.action == BgOrderAction::None)
+        return;
+
+    uint64_t const ackKey = MakeAckKey(order);
+    if (botAI->bgLastAckOrderKey == ackKey)
+        return;
+
+    if (!accepted && !ShouldSpeakDecline(bot, order))
+    {
+        // Mark seen so we do not re-roll every tick.
+        botAI->bgLastAckOrderKey = ackKey;
+        return;
+    }
+
+    std::string const actionWord = order.action == BgOrderAction::Defend ? "defend" : "attack";
+    std::string const nodeWord = order.nodeName.empty() ? "objective" : order.nodeName;
+
+    std::map<std::string, std::string> placeholders;
+    placeholders["%action"] = actionWord;
+    placeholders["%node"] = nodeWord;
+
+    std::string text;
+    if (accepted)
+    {
+        text = PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "bg_order_accept", "On it — %action %node", placeholders);
+    }
+    else
+    {
+        text = PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "bg_order_busy", "Can't — holding elsewhere", placeholders);
+    }
+
+    EmitBgOrderChat(botAI, text);
+    botAI->bgLastAckOrderKey = ackKey;
 }
 
 bool BgOrderRegistry::TrySelectAutonomousObjective(Player* bot, PlayerbotAI* botAI, Battleground* bg, BgNodeRef& out,
@@ -627,6 +817,97 @@ bool BgOrderRegistry::TrySelectAutonomousObjective(Player* bot, PlayerbotAI* bot
         }
 
         return out.gameObject != nullptr;
+    }
+
+    if (bgType == BATTLEGROUND_AV)
+    {
+        BattlegroundAV* av = static_cast<BattlegroundAV*>(bg);
+        float bestDefendScore = FLT_MAX;
+        float bestAttackScore = FLT_MAX;
+        BgNodeRef bestDefend;
+        BgNodeRef bestAttack;
+
+        static uint32 const avNodes[] = {
+            BG_AV_NODES_SNOWFALL_GRAVE,   BG_AV_NODES_STONEHEART_GRAVE, BG_AV_NODES_ICEBLOOD_GRAVE,
+            BG_AV_NODES_STORMPIKE_GRAVE,  BG_AV_NODES_FROSTWOLF_GRAVE, BG_AV_NODES_FIRSTAID_STATION,
+            BG_AV_NODES_STONEHEART_BUNKER, BG_AV_NODES_ICEWING_BUNKER,  BG_AV_NODES_DUNBALDAR_SOUTH,
+            BG_AV_NODES_DUNBALDAR_NORTH,  BG_AV_NODES_ICEBLOOD_TOWER,  BG_AV_NODES_TOWER_POINT,
+            BG_AV_NODES_FROSTWOLF_ETOWER, BG_AV_NODES_FROSTWOLF_WTOWER};
+
+        for (uint32 nodeId : avNodes)
+        {
+            BG_AV_NodeInfo const& info = av->GetAVNodeInfo(nodeId);
+            if (info.State == POINT_DESTROYED)
+                continue;
+
+            GameObject* go = GetAvBanner(bg, nodeId);
+            if (!go)
+                continue;
+
+            Position pos = go->GetPosition();
+            if (IsNodeSaturated(bg, team, pos) || botAI->bgLastNodeId == nodeId)
+                continue;
+
+            float score = bot->GetDistance(go);
+            score += float(CountFriendliesNearNode(bg, team, pos, sPlayerbotAIConfig.bgNodeRadius)) *
+                     sPlayerbotAIConfig.bgSaturationPenalty;
+
+            // Prefer mid-map graves over deep backline when offensive.
+            if (GetEffectiveIndependenceLevel() >= 2)
+            {
+                float x = pos.GetPositionX();
+                // Snowfall / stoneheart / iceblood sit in the contested middle band.
+                if (nodeId != BG_AV_NODES_SNOWFALL_GRAVE && nodeId != BG_AV_NODES_STONEHEART_GRAVE &&
+                    nodeId != BG_AV_NODES_ICEBLOOD_GRAVE)
+                {
+                    if ((team == TEAM_ALLIANCE && x > -200.0f) || (team == TEAM_HORDE && x < -500.0f))
+                        score *= 1.35f;  // deep enemy backline penalty for non-front nodes
+                }
+            }
+
+            bool owned = info.OwnerId == team;
+            bool contested = info.State == POINT_ASSAULTED;
+
+            if (owned && contested)
+            {
+                score *= 0.5f;
+                if (score < bestDefendScore)
+                {
+                    bestDefendScore = score;
+                    bestDefend = {nodeId, pos, go};
+                }
+            }
+            else if (!owned && info.State != POINT_DESTROYED)
+            {
+                if (IsNodeSecure(bg, bgType, team, nodeId))
+                    continue;
+
+                if (contested)
+                    score *= 0.65f;
+
+                if (score < bestAttackScore)
+                {
+                    bestAttackScore = score;
+                    bestAttack = {nodeId, pos, go};
+                }
+            }
+        }
+
+        if (bestDefend.gameObject && bestDefendScore <= bestAttackScore)
+        {
+            out = bestDefend;
+            suggestedAction = BgOrderAction::Defend;
+            return true;
+        }
+
+        if (bestAttack.gameObject)
+        {
+            out = bestAttack;
+            suggestedAction = BgOrderAction::Attack;
+            return true;
+        }
+
+        return false;
     }
 
     return false;
