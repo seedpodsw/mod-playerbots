@@ -487,7 +487,16 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
 
     if (sPlayerbotAIConfig.hasLog("player_location.csv"))
     {
-        LogPlayerLocation();
+        // Hard guard: rewriting CSV for every online bot each manager tick destroys disks at scale.
+        if (playerBots.size() > 500)
+        {
+            LOG_ERROR("playerbots",
+                      "player_location.csv logging ignored: {} bots online (cap 500). Remove it from "
+                      "AiPlayerbot.AllowedLogFiles.",
+                      playerBots.size());
+        }
+        else
+            LogPlayerLocation();
     }
 
     MaybeFlushDirtyEventCache();
@@ -1750,7 +1759,7 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
     if (group && !group->isLFGGroup() && IsRandomBot(group->GetLeader()) && !IsBotLedNearbyGroup(group))
     {
         botAI->LeaveOrDisbandGroup();
-        LOG_INFO("playerbots", "Bot {} remove from group since leader is random bot.", bot->GetName().c_str());
+        LOG_DEBUG("playerbots", "Bot {} remove from group since leader is random bot.", bot->GetName().c_str());
     }
 
     // Persistent nearby groups skip the rest of the lifecycle (randomize/teleport) so the
@@ -3758,12 +3767,15 @@ void RandomPlayerbotMgr::OnBotLoginInternal(Player* const bot)
 {
     if (_isBotLogging)
     {
-        LOG_INFO("playerbots", "{}/{} Bot {} logged in", playerBots.size(),
-                 sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName().c_str());
+        // DEBUG: per-bot login lines spam disk during large login waves; keep progress at DEBUG.
+        LOG_DEBUG("playerbots", "{}/{} Bot {} logged in", playerBots.size(),
+                  sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName().c_str());
 
         if (playerBots.size() == sRandomPlayerbotMgr.GetMaxAllowedBotCount())
         {
             _isBotLogging = false;
+            LOG_INFO("playerbots", "Random bot login complete: {}/{} online", playerBots.size(),
+                     sRandomPlayerbotMgr.GetMaxAllowedBotCount());
         }
     }
 

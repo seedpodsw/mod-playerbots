@@ -555,10 +555,26 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
     }
     wasInBattleground = inBattleground;
 
-    // kinda expensive call to make on every single updateAI, do we really need this information?
-    std::string const mapString = WorldPosition(bot).isOverworld() ? std::to_string(bot->GetMapId()) : "I";
-    PerfMonitorOperation* pmo =
-        sPerfMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAIInternal " + mapString);
+    // Invalidate scan-heavy value caches when entering combat so 2s intervals do not stale pulls.
+    bool const inCombat = bot->IsInCombat();
+    if (inCombat && !wasInCombat && aiObjectContext)
+    {
+        static char const* const scanValues[] = {
+            "possible targets", "possible targets no los", "all targets", "nearest enemy players",
+            "nearest friendly players", "grind target", "enemy player target"};
+        for (char const* name : scanValues)
+            if (UntypedValue* value = aiObjectContext->GetUntypedValue(name))
+                value->Reset();
+    }
+    wasInCombat = inCombat;
+
+    // isOverworld + string build only needed when PerfMon is on (start() already no-ops when off).
+    PerfMonitorOperation* pmo = nullptr;
+    if (sPlayerbotAIConfig.perfMonEnabled)
+    {
+        std::string const mapString = WorldPosition(bot).isOverworld() ? std::to_string(bot->GetMapId()) : "I";
+        pmo = sPerfMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAIInternal " + mapString);
+    }
 
     ExternalEventHelper helper(aiObjectContext);
 
@@ -4906,6 +4922,9 @@ GuilderType PlayerbotAI::GetGuilderType()
 
 bool PlayerbotAI::HasPlayerNearby(WorldPosition* pos, float range)
 {
+    if (sRandomPlayerbotMgr.GetPlayers().empty())
+        return false;
+
     float sqRange = range * range;
     for (auto& player : sRandomPlayerbotMgr.GetPlayers())
     {
@@ -4958,8 +4977,13 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
     }
 
     // bot is inside a BG, dungeon, or raid — always active
-    if (!WorldPosition(bot).isOverworld())
-        return true;
+    // Inline continent check (same as WorldPosition::isOverworld) without constructing WorldPosition.
+    {
+        uint32 const mapId = bot->GetMapId();
+        bool const overworld = (mapId == 0 || mapId == 1 || mapId == 530 || mapId == 571);
+        if (!overworld)
+            return true;
+    }
 
     // bot is waiting in a BG queue — stay active to speed up join
     if (bot->InBattlegroundQueue())
@@ -4977,7 +5001,7 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
     bool checkMap = sPlayerbotAIConfig.BotActiveAloneForceWhenInMap;
     bool checkZone = sPlayerbotAIConfig.BotActiveAloneForceWhenInZone;
     bool checkRadius = sPlayerbotAIConfig.BotActiveAloneForceWhenInRadius > 0;
-    if (checkMap || checkZone || checkRadius)
+    if ((checkMap || checkZone || checkRadius) && !sRandomPlayerbotMgr.GetPlayers().empty())
     {
         uint32 botMapId = bot->GetMapId();
         uint32 botZoneId = checkZone ? bot->GetZoneId() : 0;
@@ -5072,7 +5096,7 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
         return true;
 
     // a real player has this bot on their friends list
-    if (sPlayerbotAIConfig.BotActiveAloneForceWhenIsFriend)
+    if (sPlayerbotAIConfig.BotActiveAloneForceWhenIsFriend && !sRandomPlayerbotMgr.GetPlayers().empty())
     {
         // shouldnt be needed analyse in future
         if (!bot->GetGUID())

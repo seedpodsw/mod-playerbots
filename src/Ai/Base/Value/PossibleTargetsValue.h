@@ -14,9 +14,11 @@ class PlayerbotAI;
 class PossibleTargetsValue : public NearestUnitsValue
 {
 public:
+    // checkInterval 2s: Cell::VisitObjects is expensive; idle bots must not rescan every Get().
+    // Combat entry resets these values via PlayerbotAI so pulls stay fresh.
     PossibleTargetsValue(PlayerbotAI* botAI, std::string const name = "possible targets",
                          float range = sPlayerbotAIConfig.sightDistance, bool ignoreLos = false)
-        : NearestUnitsValue(botAI, name, range, ignoreLos)
+        : NearestUnitsValue(botAI, name, range, ignoreLos, 2)
     {
     }
 

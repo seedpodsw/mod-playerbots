@@ -14,7 +14,8 @@ class Unit;
 class GrindTargetValue : public TargetValue
 {
 public:
-    GrindTargetValue(PlayerbotAI* botAI, std::string const name = "grind target") : TargetValue(botAI, name) {}
+    // 2s cache — grind scoring walks possible targets + quest checks; invalidate on combat.
+    GrindTargetValue(PlayerbotAI* botAI, std::string const name = "grind target") : TargetValue(botAI, name, 2) {}
 
     Unit* Calculate() override;
 

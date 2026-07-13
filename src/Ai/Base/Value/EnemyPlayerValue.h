@@ -16,6 +16,7 @@ class Unit;
 class NearestEnemyPlayersValue : public PossibleTargetsValue
 {
 public:
+    // Inherits PossibleTargetsValue 2s interval (open-world PvP scan); combat Reset refreshes early.
     NearestEnemyPlayersValue(PlayerbotAI* botAI, float range = sPlayerbotAIConfig.grindDistance)
         : PossibleTargetsValue(botAI, "nearest enemy players", range)
     {

@@ -500,8 +500,10 @@ bool ChooseTravelTargetAction::SetQuestTarget(TravelTarget* target, bool /*onlyC
             if (!completedQuests && bot->CanRewardQuest(questTemplate, false))
                 continue;
 
-            //Find quest takers or objectives
-            std::vector<TravelDestination*> questDestinations = TravelMgr::instance().getQuestTravelDestinations(bot, questId, true, false, 0);
+            // Bound search — maxDistance 0 = whole world (expensive at scale). Prefer local/regional camps.
+            float const questSearchRange = 2000.0f + bot->GetLevel() * 20.0f;
+            std::vector<TravelDestination*> questDestinations =
+                TravelMgr::instance().getQuestTravelDestinations(bot, questId, true, false, questSearchRange);
 
             if (onlyClassQuest && activeDestinations.size() && questDestinations.size()) //Only do class quests if we have any.
             {
@@ -516,7 +518,12 @@ bool ChooseTravelTargetAction::SetQuestTarget(TravelTarget* target, bool /*onlyC
         }
     }
     if (newQuests && activeDestinations.empty())
-        activeDestinations = TravelMgr::instance().getQuestTravelDestinations(bot, -1, true, false); //If we really don't find any new quests look futher away.
+    {
+        // Wider but still bounded fallback (default API maxDistance is 5000).
+        float const farSearchRange = 5000.0f + bot->GetLevel() * 30.0f;
+        activeDestinations =
+            TravelMgr::instance().getQuestTravelDestinations(bot, -1, true, false, farSearchRange);
+    }
 
     if (botAI->HasStrategy("debug travel", BotState::BOT_STATE_NON_COMBAT))
         botAI->TellMasterNoFacing(std::to_string(activeDestinations.size()) + " quest destinations found.");
@@ -536,9 +543,10 @@ bool ChooseTravelTargetAction::SetNewQuestTarget(TravelTarget* target)
 
     WorldPosition botLocation(bot);
 
-    // Find quest givers.
+    // Find quest givers — keep a distance cap (HasRealPlayerMaster widens ignoreFull only).
+    float const giverRange = botAI->HasRealPlayerMaster() ? 10000.0f : (4000.0f + bot->GetLevel() * 25.0f);
     std::vector<TravelDestination*> TravelDestinations =
-        TravelMgr::instance().getQuestTravelDestinations(bot, -1, botAI->HasRealPlayerMaster());
+        TravelMgr::instance().getQuestTravelDestinations(bot, -1, botAI->HasRealPlayerMaster(), false, giverRange);
 
     activeDestinations.insert(activeDestinations.end(), TravelDestinations.begin(), TravelDestinations.end());
 

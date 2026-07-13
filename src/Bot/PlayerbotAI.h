@@ -629,6 +629,7 @@ public:
     time_t ambientGroupLeaveTime = 0;
     time_t bgReleaseAttemptTime = 0;
     bool wasInBattleground = false;
+    bool wasInCombat = false;
     time_t bgObjectiveSetTime = 0;
     uint32 bgLastNodeId = 0;
 

@@ -135,6 +135,10 @@ bool InviteNearbyToGroupAction::isUseful()
     if (!PlayerbotAIConfig::instance().randomBotGroupNearby)
         return false;
 
+    // Skip invite scans when this bot is in the inactive rotation (minimal AI).
+    if (!botAI->AllowActivity())
+        return false;
+
     if (bot->InBattleground())
         return false;
 

@@ -365,6 +365,7 @@ AiPlayerbot.DispelAuraDuration = 700
 AiPlayerbot.ReactDelay = 40
 
 # Dynamically adjust react delay for bots in different status to reduce server lags
+# Default 0 here for small-shard responsiveness. For ~10k online set to 1 (see 10k profile).
 AiPlayerbot.DynamicReactDelay = 0
 
 # Inactivity delay
@@ -901,6 +902,9 @@ AiPlayerbot.ExcludedHunterPetFamilies = ""
 # BotActiveAlone
 # - Controls how many bots are active when no real players are nearby.
 # - Think of it as a rough percentage: 10 means approximately 10% of bots will be active.
+# - Small shards / quality-first: 100 keeps alone bots leveling (this fork default).
+# - ~10k concurrent online: use 25–40 (see "10k CAPACITY PROFILE" below) so inactive
+#   bots run minimal AI while force-active rules keep combat / near-player bots sharp.
 #   Not exact — the actual number may vary slightly per rotation cycle.
 # - The active bots rotate: every <DurationSeconds> a different set of bots takes a turn.
 # - The real number of active bots will always be higher than this value, because bots in
@@ -1481,6 +1485,7 @@ AiPlayerbot.RandomBotsPerInterval = 25
 
 # Also consider raising Save.Interval in worldserver.conf (e.g. 900-1800) so core periodic
 # character saves for online bots hit the Character DB less often.
+# Required for ~10k online — see "10k CAPACITY PROFILE" near the end of this file.
 
 # Defer playerbots_random_bots event writes and flush in batches (seconds).
 # 0 = write every SetEventValue immediately (legacy). 60+ recommended for production.
@@ -2296,10 +2301,19 @@ AiPlayerbot.RandomChangeMultiplier = 1
 AiPlayerbot.TellWhenAvoidAoe = 0
 
 # Enable/Disable performance monitor
+# Default: 0 (off). Leave off in production — timing has overhead.
+#
+# Baseline procedure (staging / capacity tuning toward ~10k bots):
+#   1. Set PerfMonEnabled = 1 and DbPerfStatsEnabled = 1
+#   2. Bring up a known bot count (e.g. 1k, then 3k) and play/idle for several minutes
+#   3. GM command: .pmon  (or .pmon full / .pmon stack) — note top triggers/actions/values
+#   4. Watch worldserver log for DbPerfStats lines every DbPerfStatsLogInterval seconds
+#   5. Compare rankings before/after capacity changes; then set both back to 0
+# See README.md "10k capacity profile" for the recommended activity/disk checklist.
 AiPlayerbot.PerfMonEnabled = 0
 
 # Log DB performance counters (SetEventValue batches, SaveToDB skips, etc.) every N seconds.
-# Default: 0 (disabled). Set to 300 for periodic INFO logs during tuning.
+# Default: 0 (disabled). Set to 1 with LogInterval 300 during tuning sessions only.
 AiPlayerbot.DbPerfStatsEnabled = 0
 AiPlayerbot.DbPerfStatsLogInterval = 300
 
@@ -2432,9 +2446,38 @@ AiPlayerbot.BroadcastChanceGuildManagement = 30000
 
 # Custom config to allow logfiles to be created.
 # Example: AiPlayerbot.AllowedLogFiles = travelNodes.csv,travelPaths.csv,TravelNodeStore.h,bot_movement.csv,bot_location.csv
+# WARNING: Do NOT add player_location.csv (or similar per-bot CSVs) at high bot counts —
+# each RandomBot manager tick rewrites the file for every online bot (disk killer at ~10k).
+# Keep empty for production capacity.
 AiPlayerbot.AllowedLogFiles = ""
 
 #
+#
+####################################################################################################
+
+####################################################################################################
+# 10k CAPACITY PROFILE (optional — apply in playerbots.conf for large populations)
+#
+# Small shards may keep fork defaults (BotActiveAlone=100, DynamicReactDelay=0).
+# For ~10k concurrent online bots, copy these into playerbots.conf after surgical CPU fixes:
+#
+#   AiPlayerbot.BotActiveAlone = 30
+#   AiPlayerbot.botActiveAloneSmartScale = 1
+#   AiPlayerbot.DynamicReactDelay = 1
+#   AiPlayerbot.RandomBotEventPersistInterval = 60
+#   AiPlayerbot.RandomBotLogoutSavesPerInterval = 8
+#   AiPlayerbot.RandomBotRepositoryDirtyOnly = 1
+#   AiPlayerbot.AllowedLogFiles = ""
+#
+# Also set in worldserver.conf:
+#   Save.Interval = 900
+#   (or 1800 on very large populations)
+#
+# MySQL: install conf/my.ini.recommended via conf/install-my.ini.bat
+# (skip-log-bin, innodb_flush_log_at_trx_commit=2, adequate max_connections).
+#
+# Baseline: temporarily enable PerfMonEnabled + DbPerfStatsEnabled; GM `.pmon`; then disable.
+# See README.md "10k capacity profile".
 #
 ####################################################################################################
 

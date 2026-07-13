@@ -14,8 +14,9 @@ class PlayerbotAI;
 class NearestFriendlyPlayersValue : public NearestUnitsValue
 {
 public:
+    // 2s cache — ambient invite / social scans; not combat-critical.
     NearestFriendlyPlayersValue(PlayerbotAI* botAI, float range = sPlayerbotAIConfig.sightDistance)
-        : NearestUnitsValue(botAI, "nearest friendly players", range)
+        : NearestUnitsValue(botAI, "nearest friendly players", range, false, 2)
     {
     }
 
