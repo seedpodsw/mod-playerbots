@@ -22,14 +22,41 @@ bool AttackEnemyPlayerAction::isUseful()
     if (PlayerHasFlag::IsCapturingFlag(bot))
         return false;
 
+    // Suppress local PvP only when the enemy FC is the nearer threat.
+    if (bot->InBattleground())
+    {
+        if (Unit* enemyFC = AI_VALUE(Unit*, "enemy flag carrier"))
+        {
+            if (enemyFC->IsAlive())
+            {
+                float distToFC = ServerFacade::instance().GetDistance2d(bot, enemyFC);
+                if (ServerFacade::instance().IsDistanceLessOrEqualThan(distToFC, sPlayerbotAIConfig.sightDistance))
+                {
+                    Unit* nearbyEnemy = AI_VALUE(Unit*, "enemy player target");
+                    if (!nearbyEnemy || !nearbyEnemy->IsAlive() || nearbyEnemy == enemyFC)
+                        return false;
+
+                    float distToEnemy = ServerFacade::instance().GetDistance2d(bot, nearbyEnemy);
+                    constexpr float FC_PRIORITY_BUFFER = 15.0f;
+                    if (distToFC + FC_PRIORITY_BUFFER < distToEnemy)
+                        return false;
+                }
+            }
+        }
+    }
+
     return !sPlayerbotAIConfig.IsPvpProhibited(bot->GetZoneId(), bot->GetAreaId());
 }
 
 bool AttackEnemyFlagCarrierAction::isUseful()
 {
     Unit* target = context->GetValue<Unit*>("enemy flag carrier")->Get();
-    return target && ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, target), 100.0f) &&
-           !PlayerHasFlag::IsCapturingFlag(bot);
+    if (!target || !target->IsAlive() || PlayerHasFlag::IsCapturingFlag(bot))
+        return false;
+
+    // Must be in pursue range so Attack (LOS) can succeed; map-wide chase is selectObjective.
+    return ServerFacade::instance().IsDistanceLessOrEqualThan(
+        ServerFacade::instance().GetDistance2d(bot, target), sPlayerbotAIConfig.sightDistance);
 }
 
 bool AggressiveTargetAction::isUseful()

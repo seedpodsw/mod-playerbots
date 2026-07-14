@@ -1403,7 +1403,10 @@ TravelPath TravelNodeMap::getFullPath(WorldPosition startPos, WorldPosition endP
 
     beginPath = endPos.getPathFromPath({startPos}, nullptr, 40);
 
-    if (endPos.isPathTo(beginPath))
+    // Large vertical gaps need elevators/static transports — never short-circuit on
+    // an mmap-only path that ends at a shaft/cliff edge with the wrong Z.
+    float const verticalGap = std::fabs(startPos.GetPositionZ() - endPos.GetPositionZ());
+    if (verticalGap < 18.0f && endPos.isPathTo(beginPath))
         return TravelPath(beginPath);
 
     //[[Node pathfinding system]]

@@ -470,7 +470,7 @@ public:
             return true;
 
         PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
-        if (!botAI || botAI->IsRealPlayer())
+        if (!botAI || !botAI->GetBot() || botAI->IsRealPlayer())
             return true;
 
         // Always update bots that must stay responsive.

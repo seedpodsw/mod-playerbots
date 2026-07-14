@@ -92,7 +92,8 @@ bool FindTransportArrival(TravelPath& path, uint32 entry, WorldPosition const& n
         if (points[i + 1].type != NODE_TRANSPORT || points[i + 1].entry != entry)
             continue;
 
-        float const dist = nearPos.distance(points[i].point);
+        // Prefer Position::GetExactDist (const) — WorldPosition::distance is non-const.
+        float const dist = nearPos.GetExactDist(points[i].point);
         if (dist < bestDist)
         {
             bestDist = dist;

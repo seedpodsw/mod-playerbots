@@ -1475,8 +1475,9 @@ AiPlayerbot.BgEnemyAggroRange = 100
 AiPlayerbot.BgChaseEnemyChance = 20
 AiPlayerbot.BgDefaultStrategyBias = 65
 AiPlayerbot.BgCombatObjectivePush = 1
-AiPlayerbot.BgAbEnemyDetourChance = 15
-AiPlayerbot.BgAvEnemyDetourChance = 25
+# Light mid engagement without abandoning nodes/towers (0-100).
+AiPlayerbot.BgAbEnemyDetourChance = 10
+AiPlayerbot.BgAvEnemyDetourChance = 10
 
 #
 #

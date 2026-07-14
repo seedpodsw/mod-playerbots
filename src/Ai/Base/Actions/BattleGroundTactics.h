@@ -129,6 +129,7 @@ private:
     bool teamFlagTaken();
     bool protectFC();
     bool useBuff();
+    bool hasStickyBgWinCondition();
     uint32 getPlayersInArea(TeamId teamId, Position point, float range, bool combat = true);
     bool IsLockedInsideKeep();
 };

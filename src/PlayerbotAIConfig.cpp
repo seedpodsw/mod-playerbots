@@ -222,8 +222,9 @@ bool PlayerbotAIConfig::Initialize()
     bgChaseEnemyChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgChaseEnemyChance", hardModeBG ? 20 : 8);
     bgDefaultStrategyBias = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgDefaultStrategyBias", hardModeBG ? 65 : 50);
     bgCombatObjectivePush = sConfigMgr->GetOption<bool>("AiPlayerbot.BgCombatObjectivePush", hardModeBG);
-    bgAbEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAbEnemyDetourChance", hardModeBG ? 15 : 5);
-    bgAvEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAvEnemyDetourChance", hardModeBG ? 25 : 8);
+    // Light mid engagement without abandoning nodes/towers.
+    bgAbEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAbEnemyDetourChance", 10);
+    bgAvEnemyDetourChance = sConfigMgr->GetOption<uint32>("AiPlayerbot.BgAvEnemyDetourChance", 10);
     LoadList<std::vector<uint32>>(
         sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotQuestIds", "3802,5505,6502,7761,7848,10277,10285,11492,"
                                            "13188,13189,24499,24511,24710,24712"),

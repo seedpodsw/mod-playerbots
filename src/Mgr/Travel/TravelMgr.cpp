@@ -28,6 +28,7 @@
 #include "Map.h"
 #include "Corpse.h"
 #include "CellImpl.h"
+#include "Transport.h"
 
 // Navigation data
 

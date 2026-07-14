@@ -1722,13 +1722,16 @@ bool BGTactics::Execute(Event /*event*/)
 
         switch (bot->GetMotionMaster()->GetCurrentMovementGeneratorType())
         {
-            // TODO: should ESCORT_MOTION_TYPE be here seeing as bots use it by default?
+            // ESCORT is the bots' default move type — treat it like IDLE/POINT so we
+            // actually repath instead of fake-succeeding and standing still.
             case IDLE_MOTION_TYPE:
             case CHASE_MOTION_TYPE:
             case POINT_MOTION_TYPE:
+            case ESCORT_MOTION_TYPE:
                 break;
             default:
-                return true;
+                // Unknown motion must not consume the tick as success.
+                return false;
         }
 
         if (vFlagIds && atFlag(*vPaths, *vFlagIds))
@@ -1737,12 +1740,30 @@ bool BGTactics::Execute(Event /*event*/)
         if (useBuff())
             return true;
 
+        // Yield to nearby mid fights unless a local win condition is sticky.
+        // Move still has prio ~88; returning false lets attack-enemy-player run.
+        bool stickyWin = hasStickyBgWinCondition();
+        if (!stickyWin)
+        {
+            constexpr float BG_MID_FIGHT_YIELD_RANGE = 40.0f;
+            if (Unit* nearbyEnemy = AI_VALUE(Unit*, "enemy player target"))
+                if (nearbyEnemy->IsAlive() &&
+                    ServerFacade::instance().IsDistanceLessOrEqualThan(
+                        ServerFacade::instance().GetDistance2d(bot, nearbyEnemy), BG_MID_FIGHT_YIELD_RANGE))
+                    return false;
+        }
+
         // NOTE: can't use IsInCombat() when in vehicle as player is stuck in combat forever while in vehicle (ac bug?)
         bool inCombat = bot->GetVehicle() ? (bool)AI_VALUE(Unit*, "enemy player target") : bot->IsInCombat();
-        if (inCombat && !PlayerHasFlag::IsCapturingFlag(bot))
+        if (inCombat && !stickyWin)
         {
             if (!BgOrderRegistry::ShouldPushObjectiveWhileInCombat())
                 return false;
+        }
+        // Local win-condition targets always push through combat.
+        else if (inCombat && stickyWin)
+        {
+            // fall through — keep moving to FC / flag / home
         }
 
         if (!moveToObjective(false))
@@ -2058,22 +2079,6 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- Captain ---
-            if (!BgObjective && urand(0, 99) < 90)
-            {
-                if (av->IsCaptainAlive(team == TEAM_HORDE ? TEAM_ALLIANCE : TEAM_HORDE))
-                {
-                    uint32 creatureId = (team == TEAM_HORDE) ? AV_CREATURE_A_CAPTAIN : AV_CREATURE_H_CAPTAIN;
-                    if (Creature* captain = bg->GetBGCreature(creatureId))
-                    {
-                        if (captain->IsAlive())
-                        {
-                            BgObjective = captain;
-                        }
-                    }
-                }
-            }
-
             // --- Defender Logic ---
             if (!BgObjective && isDefender)
             {
@@ -2102,6 +2107,55 @@ bool BGTactics::selectObjective(bool reset)
                     BgObjective = availableObjectives[urand(0, availableObjectives.size() - 1)];
             }
 
+            // --- Attacker Logic (towers before captain/mid) ---
+            if (!BgObjective)
+            {
+                std::vector<GameObject*> candidates;
+
+                for (auto const& [nodeId, goId] : attackObjectives)
+                {
+                    const BG_AV_NodeInfo& node = av->GetAVNodeInfo(nodeId);
+                    GameObject* go = bg->GetBGObject(goId);
+                    if (!go || node.State == POINT_DESTROYED || node.TotalOwnerId == team)
+                        continue;
+
+                    // Prefer contested/assaultable towers — skip already-assaulted rarely.
+                    if (node.State == POINT_ASSAULTED && urand(0, 99) >= 20)
+                        continue;
+
+                    candidates.push_back(go);
+
+                    if (((strategy == AV_STRATEGY_BALANCED && candidates.size() >= 2) ||
+                         (strategy == AV_STRATEGY_OFFENSIVE && candidates.size() >= 3) ||
+                         (strategy == AV_STRATEGY_DEFENSIVE && candidates.size() >= 1)) ||
+                        isAdvanced)
+                        break;
+                }
+
+                if (!candidates.empty())
+                    BgObjective = candidates[urand(0, candidates.size() - 1)];
+            }
+
+            // --- Captain (only when towers are mostly down — don't abandon free towers for mid) ---
+            if (!BgObjective)
+            {
+                uint32 towersStillUp = 0;
+                for (auto const& [nodeId, _] : attackObjectives)
+                    if (av->GetAVNodeInfo(nodeId).State != POINT_DESTROYED)
+                        towersStillUp++;
+
+                uint32 captainChance = towersStillUp <= 1 ? 85 : 15;
+                if (urand(0, 99) < captainChance && av->IsCaptainAlive(team == TEAM_HORDE ? TEAM_ALLIANCE : TEAM_HORDE))
+                {
+                    uint32 creatureId = (team == TEAM_HORDE) ? AV_CREATURE_A_CAPTAIN : AV_CREATURE_H_CAPTAIN;
+                    if (Creature* captain = bg->GetBGCreature(creatureId))
+                    {
+                        if (captain->IsAlive())
+                            BgObjective = captain;
+                    }
+                }
+            }
+
             // --- Enemy Boss ---
             if (!BgObjective)
             {
@@ -2128,55 +2182,28 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- Attacker Logic ---
+            // Fallback wait near boss if still no objective
             if (!BgObjective)
             {
-                std::vector<GameObject*> candidates;
+                const Position& waitPos = (team == TEAM_HORDE) ? AV_BOSS_WAIT_H : AV_BOSS_WAIT_A;
 
-                for (auto const& [nodeId, goId] : attackObjectives)
+                float rx, ry, rz;
+                bot->GetRandomPoint(waitPos, 5.0f, rx, ry, rz);
+
+                if (Map* map = bot->GetMap())
                 {
-                    const BG_AV_NodeInfo& node = av->GetAVNodeInfo(nodeId);
-                    GameObject* go = bg->GetBGObject(goId);
-                    if (!go || node.State == POINT_DESTROYED || node.TotalOwnerId == team)
-                        continue;
-
-                    if (node.State == POINT_ASSAULTED && urand(0, 99) >= 1)
-                        continue;
-
-                    candidates.push_back(go);
-
-                    if (((strategy == AV_STRATEGY_BALANCED && candidates.size() >= 2) ||
-                         (strategy == AV_STRATEGY_OFFENSIVE && candidates.size() >= 3) ||
-                         (strategy == AV_STRATEGY_DEFENSIVE && candidates.size() >= 1)) ||
-                        isAdvanced)
-                        break;
+                    float groundZ = map->GetHeight(rx, ry, rz);
+                    if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                        rz = groundZ;
                 }
 
-                if (!candidates.empty())
-                    BgObjective = candidates[urand(0, candidates.size() - 1)];
-                else
-                {
-                    // Fallback: move to boss wait position
-                    const Position& waitPos = (team == TEAM_HORDE) ? AV_BOSS_WAIT_H : AV_BOSS_WAIT_A;
+                pos.Set(rx, ry, rz, bot->GetMapId());
+                posMap["bg objective"] = pos;
 
-                    float rx, ry, rz;
-                    bot->GetRandomPoint(waitPos, 5.0f, rx, ry, rz);
-
-                    if (Map* map = bot->GetMap())
-                    {
-                        float groundZ = map->GetHeight(rx, ry, rz);
-                        if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
-                            rz = groundZ;
-                    }
-
-                    pos.Set(rx, ry, rz, bot->GetMapId());
-                    posMap["bg objective"] = pos;
-
-                    uint32 bossId = (team == TEAM_HORDE) ? AV_CREATURE_A_BOSS : AV_CREATURE_H_BOSS;
-                    if (Creature* boss = bg->GetBGCreature(bossId))
-                        if (boss->IsAlive())
-                            BgObjective = boss;
-                }
+                uint32 bossId = (team == TEAM_HORDE) ? AV_CREATURE_A_BOSS : AV_CREATURE_H_BOSS;
+                if (Creature* boss = bg->GetBGCreature(bossId))
+                    if (boss->IsAlive())
+                        BgObjective = boss;
             }
 
             // --- Movement logic for any valid objective ---
@@ -2296,26 +2323,10 @@ bool BGTactics::selectObjective(bool reset)
                 else
                     SetSafePos(team == TEAM_ALLIANCE ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE);
             }
-            // 2) Enemy FC visible — chase (majority when both flags taken).
-            else if (enemyFC)
+            // 2) Enemy FC visible — always chase (majority peel). Escort only when no enemy FC.
+            else if (enemyFC && enemyFC->IsAlive())
             {
-                bool escortInstead = false;
-                if (teamFC && enemyFC)
-                {
-                    // Minority escort when both flags taken and escort not saturated.
-                    if (!BgOrderRegistry::IsNodeSaturated(bg, team, teamFC->GetPosition()) &&
-                        urand(0, 99) < 25)
-                        escortInstead = true;
-                }
-
-                if (escortInstead && teamFC)
-                {
-                    SetUnitPos(teamFC);
-                    if (ServerFacade::instance().GetDistance2d(bot, teamFC) < 33.0f)
-                        Follow(teamFC);
-                }
-                else
-                    SetUnitPos(enemyFC);
+                SetUnitPos(enemyFC);
             }
             // 3) Friendly FC — escort if not saturated.
             else if (teamFC && !BgOrderRegistry::IsNodeSaturated(bg, team, teamFC->GetPosition()))
@@ -2394,11 +2405,11 @@ bool BGTactics::selectObjective(bool reset)
 
             BgObjective = nullptr;
 
-            // Player orders + autonomous spread before combat detours when independence is on.
+            // Player orders + autonomous spread — nodes before any combat detour.
             if (BgOrderRegistry::GetEffectiveIndependenceLevel() >= 1)
                 TryApplyPriorityObjective(bot, botAI, context, bg, BgObjective);
 
-            // --- PRIORITY 1: Nearby enemy (rare aggressive impulse) ---
+            // Enemy detour only when config allows (aggressive default = 0).
             if (!BgObjective && urand(0, 99) < BgOrderRegistry::GetAbEnemyDetourChance())
             {
                 if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
@@ -2506,8 +2517,8 @@ bool BGTactics::selectObjective(bool reset)
                     BgObjective = secureObjective;
             }
 
-            // Prefer contested/neutral over enemy occupied when scoring attack pool under independence.
-            if (!BgObjective && BgOrderRegistry::GetEffectiveIndependenceLevel() >= 2)
+            // Prefer contested/neutral over enemy occupied for all independence levels.
+            if (!BgObjective)
             {
                 float bestScore = FLT_MAX;
                 GameObject* best = nullptr;
@@ -2539,10 +2550,11 @@ bool BGTactics::selectObjective(bool reset)
                     score += float(BgOrderRegistry::CountFriendliesNearNode(
                                       bg, team, nodePos, sPlayerbotAIConfig.bgNodeRadius)) *
                              sPlayerbotAIConfig.bgSaturationPenalty;
+                    // Contested nodes are the highest priority — swarm them.
                     if (isFriendlyContested || isEnemyContested)
-                        score *= 0.45f;
+                        score *= 0.25f;
                     else if (isNeutral)
-                        score *= 0.7f;
+                        score *= 0.5f;
 
                     if (score < bestScore)
                     {
@@ -2824,18 +2836,7 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- PRIORITY 4: Random nearby enemy (legacy only) ---
-            if (!foundObjective && BgOrderRegistry::GetEffectiveIndependenceLevel() == 0 && urand(0, 99) < 20)
-            {
-                if (Unit* enemy = AI_VALUE(Unit*, "enemy player target"))
-                {
-                    if (bot->GetDistance(enemy) < 250.0f)
-                    {
-                        pos.Set(enemy->GetPositionX(), enemy->GetPositionY(), enemy->GetPositionZ(), bot->GetMapId());
-                        foundObjective = true;
-                    }
-                }
-            }
+            // --- No legacy mid-fight detour: nodes/FC win. ---
 
             // --- PRIORITY 4.5: Player orders + autonomous spread ---
             if (!foundObjective)
@@ -3574,7 +3575,9 @@ bool BGTactics::moveToObjectiveWp(BattleBotPath* const& currentPath, uint32 curr
 
     // NOTE: can't use IsInCombat() when in vehicle as player is stuck in combat forever while in vehicle (ac bug?)
     bool inCombat = bot->GetVehicle() ? (bool)AI_VALUE(Unit*, "enemy player target") : bot->IsInCombat();
-    if (currentPoint == lastPointInPath || (inCombat && !PlayerHasFlag::IsCapturingFlag(bot)) || !bot->IsAlive())
+    bool stickyWin = hasStickyBgWinCondition();
+    // Don't wipe the objective mid-path just because we got punched while hunting FC / capping.
+    if (currentPoint == lastPointInPath || (inCombat && !stickyWin) || !bot->IsAlive())
     {
         // Path is over.
         // std::ostringstream out;
@@ -3875,15 +3878,13 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
     {
         if (targetFlag)
         {
-            // Check for enemy players near the flag using bot's targeting system
+            // Only peel for enemies actually on the capture pad — don't abandon empty caps for mid.
             Unit* enemyPlayer = AI_VALUE(Unit*, "enemy player target");
             if (enemyPlayer && enemyPlayer->IsAlive())
             {
-                // If enemy is near the flag, engage them before attempting capture
                 float enemyDist = enemyPlayer->GetDistance(targetFlag);
-                if (enemyDist < flagRange * 2.0f)
+                if (enemyDist < flagRange)
                 {
-                    // Set enemy as current target and let combat AI handle it
                     context->GetValue<Unit*>("current target")->Set(enemyPlayer);
                     return false;
                 }
@@ -4169,6 +4170,29 @@ bool BGTactics::teamFlagTaken()
     return !bg->GetFlagPickerGUID(bot->GetTeamId()).IsEmpty();
 }
 
+bool BGTactics::hasStickyBgWinCondition()
+{
+    if (PlayerHasFlag::IsCapturingFlag(bot))
+        return true;
+
+    // Sticky only when the win-condition target is local — far-map FC chase
+    // stays in selectObjective and must not force marching through mid fights.
+    if (Unit* enemyFC = AI_VALUE(Unit*, "enemy flag carrier"))
+        if (enemyFC->IsAlive() &&
+            ServerFacade::instance().IsDistanceLessOrEqualThan(
+                ServerFacade::instance().GetDistance2d(bot, enemyFC), sPlayerbotAIConfig.sightDistance))
+            return true;
+
+    constexpr float TEAM_FC_ESCORT_RANGE = 60.0f;
+    if (Unit* teamFC = AI_VALUE(Unit*, "team flag carrier"))
+        if (teamFC && teamFC != bot && teamFC->IsAlive() &&
+            ServerFacade::instance().IsDistanceLessOrEqualThan(
+                ServerFacade::instance().GetDistance2d(bot, teamFC), TEAM_FC_ESCORT_RANGE))
+            return true;
+
+    return false;
+}
+
 bool BGTactics::protectFC()
 {
     Battleground* bg = bot->GetBattleground();
@@ -4177,23 +4201,20 @@ bool BGTactics::protectFC()
 
     Unit* teamFC = AI_VALUE(Unit*, "team flag carrier");
 
-    if (!teamFC || teamFC == bot)
-    {
+    if (!teamFC || teamFC == bot || !teamFC->IsAlive())
         return false;
-    }
 
-    if (!bot->IsInCombat() && !bot->IsWithinDistInMap(teamFC, 20.0f))
-    {
-        // Get the flag carrier's position
-        float fcX = teamFC->GetPositionX();
-        float fcY = teamFC->GetPositionY();
-        float fcZ = teamFC->GetPositionZ();
-        uint32 mapId = bot->GetMapId();
+    // Stay glued to our FC — escort even while in combat when possible.
+    // Already close: return false so combat/objectives can run (don't eat the tick).
+    if (bot->IsWithinDistInMap(teamFC, 12.0f))
+        return false;
 
-        return MoveNear(mapId, fcX, fcY, fcZ, 5.0f, MovementPriority::MOVEMENT_NORMAL);
-    }
+    float fcX = teamFC->GetPositionX();
+    float fcY = teamFC->GetPositionY();
+    float fcZ = teamFC->GetPositionZ();
+    uint32 mapId = bot->GetMapId();
 
-    return false;
+    return MoveNear(mapId, fcX, fcY, fcZ, 5.0f, MovementPriority::MOVEMENT_COMBAT);
 }
 
 bool BGTactics::useBuff()

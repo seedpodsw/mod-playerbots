@@ -28,9 +28,10 @@ void BattlegroundStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
 void WarsongStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
+    // FC chase/protect must beat HardModeBG attack-enemy-player (default 75).
     triggers.push_back(new TriggerNode("bg active", { NextAction("bg check flag", ACTION_EMERGENCY )}));
-    triggers.push_back(new TriggerNode("enemy flagcarrier near", { NextAction("attack enemy flag carrier", ACTION_RAID + 1.0f)}));
-    triggers.push_back(new TriggerNode("team flagcarrier near", { NextAction("bg protect fc", ACTION_RAID)}));
+    triggers.push_back(new TriggerNode("enemy flagcarrier near", { NextAction("attack enemy flag carrier", ACTION_EMERGENCY - 1.0f)}));
+    triggers.push_back(new TriggerNode("team flagcarrier near", { NextAction("bg protect fc", ACTION_EMERGENCY - 1.0f)}));
     triggers.push_back(new TriggerNode("often", { NextAction("bg use buff", ACTION_BG)}));
     triggers.push_back(new TriggerNode("low health", { NextAction("bg use buff", ACTION_MOVE)}));
     triggers.push_back(new TriggerNode("low mana", { NextAction("bg use buff", ACTION_MOVE)}));
@@ -40,6 +41,8 @@ void WarsongStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
 void AlteracStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
+    // Push towers/objectives hard — beats mid-bridge milling.
+    triggers.push_back(new TriggerNode("bg active", { NextAction("bg move to objective", ACTION_EMERGENCY - 2.0f)}));
     triggers.push_back(new TriggerNode("alliance no snowfall gy", { NextAction("bg move to objective", ACTION_EMERGENCY)}));
     triggers.push_back(new TriggerNode("timer bg", { NextAction("bg reset objective force", ACTION_EMERGENCY)}));
 }
@@ -47,6 +50,7 @@ void AlteracStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void ArathiStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("bg active", { NextAction("bg check flag", ACTION_EMERGENCY)}));
+    triggers.push_back(new TriggerNode("bg active", { NextAction("bg move to objective", ACTION_EMERGENCY - 2.0f)}));
     triggers.push_back(new TriggerNode("often", { NextAction("bg use buff", ACTION_BG)}));
     triggers.push_back(new TriggerNode("low health", { NextAction("bg use buff", ACTION_MOVE)}));
     triggers.push_back(new TriggerNode("low mana", { NextAction("bg use buff", ACTION_MOVE)}));
@@ -55,10 +59,11 @@ void ArathiStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void EyeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("bg active", { NextAction("bg check flag", ACTION_EMERGENCY)}));
+    triggers.push_back(new TriggerNode("bg active", { NextAction("bg move to objective", ACTION_EMERGENCY - 2.0f)}));
     triggers.push_back(new TriggerNode("often", { NextAction("bg use buff", ACTION_BG)}));
     triggers.push_back(new TriggerNode("low health", { NextAction("bg use buff", ACTION_MOVE)}));
     triggers.push_back(new TriggerNode("low mana", { NextAction("bg use buff", ACTION_MOVE)}));
-    triggers.push_back(new TriggerNode("enemy flagcarrier near", { NextAction("attack enemy flag carrier", ACTION_RAID)}));
+    triggers.push_back(new TriggerNode("enemy flagcarrier near", { NextAction("attack enemy flag carrier", ACTION_EMERGENCY - 1.0f)}));
     triggers.push_back(new TriggerNode("player has flag",{ NextAction("bg move to objective", ACTION_EMERGENCY)}));
 }
 
@@ -66,6 +71,8 @@ void EyeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void IsleStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("bg active", { NextAction("bg check flag", ACTION_EMERGENCY)}));
+    // Outrank vehicle ability spam (ACTION_MOVE+9.x) so gates/nodes get pressed.
+    triggers.push_back(new TriggerNode("bg active", { NextAction("bg move to objective", ACTION_MOVE + 10.0f)}));
     triggers.push_back(new TriggerNode("bg player order", { NextAction("bg move to objective", ACTION_EMERGENCY)}));
     triggers.push_back(new TriggerNode("often", { NextAction("bg use buff", ACTION_BG)}));
     triggers.push_back(new TriggerNode("low health", { NextAction("bg use buff", ACTION_MOVE)}));

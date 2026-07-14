@@ -22,6 +22,7 @@ class ObjectGuid;
 class Quest;
 class Player;
 class PlayerbotAI;
+class Transport;
 
 struct QuestStatusData;
 

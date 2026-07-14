@@ -659,14 +659,14 @@ void PlayerbotAI::HandleCommands()
             continue;
         }
 
-        Player* owner = it->GetOwner();
-        if (!owner)
+        ObjectGuid ownerGuid = it->GetOwnerGuid();
+        if (ownerGuid.IsEmpty())
         {
             it = chatCommands.erase(it);
             continue;
         }
 
-        owner = ObjectAccessor::FindPlayer(owner->GetGUID());
+        Player* owner = ObjectAccessor::FindPlayer(ownerGuid);
         if (!owner)
         {
             it = chatCommands.erase(it);
@@ -774,7 +774,7 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
     if (type == CHAT_MSG_RAID_WARNING && filtered.find(bot->GetName()) != std::string::npos &&
         filtered.find("award") == std::string::npos)
     {
-        chatCommands.push_back(ChatCommandHolder("warning", &fromPlayer, type));
+        chatCommands.push_back(ChatCommandHolder("warning", fromPlayer.GetGUID(), type));
         return;
     }
 
@@ -812,7 +812,7 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
             }
         }
 
-        chatCommands.push_back(ChatCommandHolder(remaining, &fromPlayer, type, time(0) + index));
+        chatCommands.push_back(ChatCommandHolder(remaining, fromPlayer.GetGUID(), type, time(0) + index));
     }
     else if (filtered == "reset")
     {
@@ -862,7 +862,7 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
 
     else
     {
-        chatCommands.push_back(ChatCommandHolder(filtered, &fromPlayer, type));
+        chatCommands.push_back(ChatCommandHolder(filtered, fromPlayer.GetGUID(), type));
     }
 }
 
@@ -1246,7 +1246,7 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
     if (type == CHAT_MSG_RAID_WARNING && filtered.find(bot->GetName()) != std::string::npos &&
         filtered.find("award") == std::string::npos)
     {
-        chatCommands.push_back(ChatCommandHolder("warning", fromPlayer, type));
+        chatCommands.push_back(ChatCommandHolder("warning", fromPlayer->GetGUID(), type));
         return;
     }
 
@@ -1275,7 +1275,7 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
             }
         }
 
-        chatCommands.push_back(ChatCommandHolder(remaining, fromPlayer, type, time(nullptr) + index));
+        chatCommands.push_back(ChatCommandHolder(remaining, fromPlayer->GetGUID(), type, time(nullptr) + index));
     }
     else if (filtered == "reset")
     {
@@ -1338,7 +1338,7 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
     }
     else
     {
-        chatCommands.push_back(ChatCommandHolder(filtered, fromPlayer, type));
+        chatCommands.push_back(ChatCommandHolder(filtered, fromPlayer->GetGUID(), type));
     }
 }
 
@@ -5151,6 +5151,10 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
 
 bool PlayerbotAI::AllowActivity(ActivityType activityType, bool checkNow)
 {
+    // AllowActive already guards bot, but the stagger offset below runs first.
+    if (!bot)
+        return false;
+
     const int activityIndex = static_cast<int>(activityType);
 
     if (!allowActiveCheckTimer[activityIndex])

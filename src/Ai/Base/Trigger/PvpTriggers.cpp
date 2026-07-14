@@ -330,44 +330,24 @@ bool EnemyTeamHasFlag::IsActive()
 bool EnemyFlagCarrierNear::IsActive()
 {
     Unit* carrier = AI_VALUE(Unit*, "enemy flag carrier");
-
-    if (!carrier || !ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, carrier), 100.f))
+    if (!carrier || !carrier->IsAlive())
         return false;
 
-    // Check if there is another enemy player target closer than the FC
-    Unit* nearbyEnemy = AI_VALUE(Unit*, "enemy player target");
-
-    if (nearbyEnemy)
-    {
-        float distToFC = ServerFacade::instance().GetDistance2d(bot, carrier);
-        float distToEnemy = ServerFacade::instance().GetDistance2d(bot, nearbyEnemy);
-
-        // If the other enemy is significantly closer, don't pursue FC
-        if (distToEnemy + 15.0f < distToFC) // Add small buffer
-            return false;
-    }
-
-    return true;
+    // Pursue range only — map-wide chase stays in selectObjective.
+    return ServerFacade::instance().IsDistanceLessOrEqualThan(
+        ServerFacade::instance().GetDistance2d(bot, carrier), sPlayerbotAIConfig.sightDistance);
 }
 
 bool TeamFlagCarrierNear::IsActive()
 {
-    if (bot->GetBattlegroundTypeId() == BATTLEGROUND_WS)
-    {
-        BattlegroundWS* bg = dynamic_cast<BattlegroundWS*>(bot->GetBattleground());
-        if (bg)
-        {
-            bool bothFlagsNotAtBase =
-                bg->GetFlagState(TEAM_ALLIANCE) != BG_WS_FLAG_STATE_ON_BASE &&
-                bg->GetFlagState(TEAM_HORDE) != BG_WS_FLAG_STATE_ON_BASE;
-
-            if (bothFlagsNotAtBase)
-                return false;
-        }
-    }
-
     Unit* carrier = AI_VALUE(Unit*, "team flag carrier");
-    return carrier && ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, carrier), 200.f);
+    if (!carrier || !carrier->IsAlive() || carrier == bot)
+        return false;
+
+    // Escort only when actually near our FC.
+    constexpr float TEAM_FC_ESCORT_RANGE = 60.0f;
+    return ServerFacade::instance().IsDistanceLessOrEqualThan(
+        ServerFacade::instance().GetDistance2d(bot, carrier), TEAM_FC_ESCORT_RANGE);
 }
 
 bool PlayerWantsInBattlegroundTrigger::IsActive()
