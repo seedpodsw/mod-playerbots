@@ -214,7 +214,8 @@ public:
     std::map<uint32, std::map<uint32, BattlegroundInfo>> BattlegroundData;
     std::map<uint32, std::map<uint32, std::map<TeamId, uint32>>> VisualBots;
     std::map<uint32, std::map<uint32, std::map<uint32, uint32>>> Supporters;
-    std::map<TeamId, std::vector<uint32>> LfgDungeons;
+    // dungeonId + level of the real player who queued it (bots must match nearby levels)
+    std::map<TeamId, std::vector<std::pair<uint32, uint8>>> LfgDungeons;
     void CheckBgQueue();
     void CheckLfgQueue();
     void CheckPlayers();

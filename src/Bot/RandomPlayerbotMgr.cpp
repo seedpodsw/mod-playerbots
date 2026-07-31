@@ -1577,7 +1577,7 @@ void RandomPlayerbotMgr::CheckLfgQueue()
                 if (!dungeon)
                     continue;
 
-                LfgDungeons[player->GetTeamId()].push_back(dungeon->id);
+                LfgDungeons[player->GetTeamId()].emplace_back(dungeon->id, player->GetLevel());
             }
         }
     }

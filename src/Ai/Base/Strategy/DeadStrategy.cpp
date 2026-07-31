@@ -17,8 +17,9 @@ void DeadStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         new TriggerNode("bg active", { NextAction("auto release", relevance) }));
     triggers.push_back(
         new TriggerNode("dead", { NextAction("find corpse", relevance) }));
+    // Keep relevance >= 100 so revive still runs in minimal/inactive engine ticks.
     triggers.push_back(new TriggerNode(
-        "corpse near", { NextAction("revive from corpse", relevance - 1.0f) }));
+        "corpse near", { NextAction("revive from corpse", relevance) }));
     triggers.push_back(new TriggerNode("resurrect request",
                                        { NextAction("accept resurrect", relevance) }));
     triggers.push_back(

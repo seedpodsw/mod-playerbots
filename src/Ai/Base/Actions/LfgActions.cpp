@@ -112,18 +112,23 @@ bool LfgJoinAction::JoinLFG()
     LfgDungeonSet list;
     std::vector<uint32> selected;
 
-    std::vector<uint32> dungeons = RandomPlayerbotMgr::instance().LfgDungeons[bot->GetTeamId()];
-    if (!dungeons.size())
+    auto const& dungeons = RandomPlayerbotMgr::instance().LfgDungeons[bot->GetTeamId()];
+    if (dungeons.empty())
         return false;
 
-    for (std::vector<uint32>::iterator i = dungeons.begin(); i != dungeons.end(); ++i)
+    uint32 const maxLevelDiff = sPlayerbotAIConfig.lfgMaxLevelDiff;
+    uint8 const botLevel = bot->GetLevel();
+
+    for (auto const& [dungeonId, playerLevel] : dungeons)
     {
-        LFGDungeonEntry const* dungeon = sLFGDungeonStore.LookupEntry(*i);
+        // Only fill queues for players near this bot's level
+        if (maxLevelDiff && (botLevel > playerLevel ? botLevel - playerLevel : playerLevel - botLevel) > maxLevelDiff)
+            continue;
+
+        LFGDungeonEntry const* dungeon = sLFGDungeonStore.LookupEntry(dungeonId);
         if (!dungeon || (dungeon->TypeID != LFG_TYPE_RANDOM && dungeon->TypeID != LFG_TYPE_DUNGEON &&
                          dungeon->TypeID != LFG_TYPE_HEROIC && dungeon->TypeID != LFG_TYPE_RAID))
             continue;
-
-        auto const& botLevel = bot->GetLevel();
 
         /*LFG_TYPE_RANDOM on classic is 15-58 so bot over level 25 will never queue*/
         if ((dungeon->MinLevel && (botLevel < dungeon->MinLevel || botLevel > dungeon->MaxLevel)) ||

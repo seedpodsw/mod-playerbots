@@ -10,6 +10,7 @@
 #include <numeric>
 
 #include "AreaDefines.h"
+#include "Containers.h"
 #include "Creature.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
@@ -4473,12 +4474,10 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
     }
     if (candidateZones.empty())
     {
-        struct ZoneCandidate
-        {
-            uint32 zoneId;
-            uint32 bracketLow;
-        };
-        std::vector<ZoneCandidate> scoredZones;
+        // Equal chance among all in-bracket zones with a usable flight node.
+        // Previous "closest bracket.low" sort starved mid zones like Tanaris
+        // (Azshara/Searing Gorge always ranked ahead for ~45 bots).
+        std::vector<uint32> scoredZones;
         for (auto const& [zoneId, bracket] : zone2LevelBracket)
         {
             if (botLevel < bracket.low || botLevel > bracket.high)
@@ -4487,23 +4486,14 @@ std::vector<std::vector<uint32>> TravelMgr::GetOptimalFlightDestinations(Player*
                 continue;
             if (GetFlightNodesInZone(zoneId, bot->GetTeamId(), fromNode).empty())
                 continue;
-            scoredZones.push_back({zoneId, bracket.low});
+            scoredZones.push_back(zoneId);
         }
 
-        // Prefer "next" hubs whose bracket starts closer to current level
-        // (classic-like course) over random early-zone leftovers.
-        std::sort(scoredZones.begin(), scoredZones.end(),
-                  [botLevel](ZoneCandidate const& a, ZoneCandidate const& b)
-                  {
-                      uint32 da = a.bracketLow > botLevel ? a.bracketLow - botLevel : botLevel - a.bracketLow;
-                      uint32 db = b.bracketLow > botLevel ? b.bracketLow - botLevel : botLevel - b.bracketLow;
-                      if (da != db)
-                          return da < db;
-                      return a.bracketLow > b.bracketLow;
-                  });
-
-        for (ZoneCandidate const& z : scoredZones)
-            candidateZones.push_back(z.zoneId);
+        if (!scoredZones.empty())
+        {
+            Acore::Containers::RandomShuffle(scoredZones);
+            candidateZones.insert(candidateZones.end(), scoredZones.begin(), scoredZones.end());
+        }
     }
 
     if (candidateZones.empty())
@@ -4652,7 +4642,7 @@ void TravelMgr::PrepareZone2LevelBracket()
     zone2LevelBracket[AREA_SEARING_GORGE]       = {45, 51};
     zone2LevelBracket[AREA_FERALAS]             = {40, 52};
     zone2LevelBracket[AREA_DESOLACE]            = {30, 41};
-    zone2LevelBracket[AREA_TANARIS]             = {41, 52};
+    zone2LevelBracket[AREA_TANARIS]             = {38, 55};
 
     // Classic WoW - top level zones
     zone2LevelBracket[AREA_BLASTED_LANDS]        = {52, 57};

@@ -273,13 +273,14 @@ bool PlayerbotAIConfig::Initialize()
     randomBotTeleportDistance = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotTeleportDistance", 100);
     randomBotsPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotsPerInterval", 60);
     randomBotEventPersistInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotEventPersistInterval", 60);
-    randomBotLogoutSavesPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotLogoutSavesPerInterval", 8);
+    randomBotLogoutSavesPerInterval = sConfigMgr->GetOption<int32>("AiPlayerbot.RandomBotLogoutSavesPerInterval", 2);
     randomBotRepositoryDirtyOnly = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotRepositoryDirtyOnly", true);
     minRandomBotsPriceChangeInterval =
         sConfigMgr->GetOption<int32>("AiPlayerbot.MinRandomBotsPriceChangeInterval", 2 * HOUR);
     maxRandomBotsPriceChangeInterval =
         sConfigMgr->GetOption<int32>("AiPlayerbot.MaxRandomBotsPriceChangeInterval", 48 * HOUR);
     randomBotJoinLfg = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotJoinLfg", true);
+    lfgMaxLevelDiff = sConfigMgr->GetOption<uint32>("AiPlayerbot.LfgMaxLevelDiff", 5);
 
     restrictHealerDPS = sConfigMgr->GetOption<bool>("AiPlayerbot.HealerDPSMapRestriction", false);
     LoadList<std::vector<uint32>>(
@@ -673,7 +674,7 @@ bool PlayerbotAIConfig::Initialize()
     BotActiveAloneForceWhenInMap = sConfigMgr->GetOption<bool>("AiPlayerbot.BotActiveAloneForceWhenInMap", 0);
     BotActiveAloneForceWhenIsFriend = sConfigMgr->GetOption<bool>("AiPlayerbot.BotActiveAloneForceWhenIsFriend", 0);
     BotActiveAloneForceWhenInGuild = sConfigMgr->GetOption<bool>("AiPlayerbot.BotActiveAloneForceWhenInGuild", 1);
-    botActiveAloneSmartScale = sConfigMgr->GetOption<bool>("AiPlayerbot.botActiveAloneSmartScale", 1);
+    botActiveAloneSmartScale = sConfigMgr->GetOption<bool>("AiPlayerbot.botActiveAloneSmartScale", 0);
     botActiveAloneSmartScaleDiffLimitfloor = sConfigMgr->GetOption<uint32>("AiPlayerbot.botActiveAloneSmartScaleDiffLimitfloor", 50);
     botActiveAloneSmartScaleDiffLimitCeiling = sConfigMgr->GetOption<uint32>("AiPlayerbot.botActiveAloneSmartScaleDiffLimitCeiling", 200);
     botActiveAloneSmartScaleWhenMinLevel = sConfigMgr->GetOption<uint32>("AiPlayerbot.botActiveAloneSmartScaleWhenMinLevel", 1);
@@ -681,7 +682,7 @@ bool PlayerbotAIConfig::Initialize()
     botPacketsPerTick = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotPacketsPerTick", 50);
     botPacketsPerWorldTick = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotPacketsPerWorldTick", 2000);
     botPacketsPerWorldTickInit = sConfigMgr->GetOption<uint32>("AiPlayerbot.BotPacketsPerWorldTickInit", 1000);
-    inactiveBotUpdateSkip = sConfigMgr->GetOption<uint32>("AiPlayerbot.InactiveBotUpdateSkip", 4);
+    inactiveBotUpdateSkip = sConfigMgr->GetOption<uint32>("AiPlayerbot.InactiveBotUpdateSkip", 1);
 
     randombotsWalkingRPG = sConfigMgr->GetOption<bool>("AiPlayerbot.RandombotsWalkingRPG", false);
     randombotsWalkingRPGInDoors = sConfigMgr->GetOption<bool>("AiPlayerbot.RandombotsWalkingRPG.InDoors", false);

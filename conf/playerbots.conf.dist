@@ -713,6 +713,16 @@ AiPlayerbot.PreQuests = 0
 # Default: 1 (enabled)
 AiPlayerbot.RandomBotJoinLfg = 1
 
+#
+# AiPlayerbot.LfgMaxLevelDiff
+#        Description: Max level gap allowed between members of a Dungeon Finder proposal, and
+#                     between a bot and the real player whose queue it is filling.
+#                     Prevents e.g. a level 21 bot auto-joining a level 47 player's RDF.
+#                     Set to 0 to disable the check.
+#        Default:     5
+#
+AiPlayerbot.LfgMaxLevelDiff = 5
+
 # Enable/Disable periodic online - offline of randombots to mimic the real-world scenario where not all players are online simultaneously
 # When enabled, randombots are randomly selected to go online or offline periodically from a larger set
 # Default: 0 (disabled, the set of online bots remains fixed)
@@ -967,7 +977,7 @@ AiPlayerbot.BotActiveAloneForceWhenInGuild = 1
 #   Bots outside the range always use the full BotActiveAlone value.
 #   Force rules always win over SmartScale.
 #
-AiPlayerbot.botActiveAloneSmartScale = 1
+AiPlayerbot.botActiveAloneSmartScale = 0
 AiPlayerbot.botActiveAloneSmartScaleDiffLimitfloor = 50
 AiPlayerbot.botActiveAloneSmartScaleDiffLimitCeiling = 200
 AiPlayerbot.botActiveAloneSmartScaleWhenMinLevel = 1
@@ -985,8 +995,8 @@ AiPlayerbot.BotPacketsPerWorldTick = 2000
 AiPlayerbot.BotPacketsPerWorldTickInit = 1000
 
 # Distant inactive bots: only run Map session + Player::Update every Nth tick (staggered).
-# Combat / near-player / AllowActivity bots always update. 1 = never skip. Default: 4 (~25%).
-AiPlayerbot.InactiveBotUpdateSkip = 4
+# Combat / near-player / AllowActivity bots always update. 1 = never skip. Default: 1.
+AiPlayerbot.InactiveBotUpdateSkip = 1
 
 #
 #
@@ -1519,8 +1529,8 @@ AiPlayerbot.MaxRandomBotRandomizeTime = 1209600
 # Default: 25 (lower reduces login bursts and DB load)
 AiPlayerbot.RandomBotsPerInterval = 25
 
-# Also consider raising Save.Interval in worldserver.conf (e.g. 900-1800) so core periodic
-# character saves for online bots hit the Character DB less often.
+# Also consider raising PlayerSaveInterval in worldserver.conf (milliseconds, e.g. 900000-1800000)
+# so core periodic character saves for online bots hit the Character DB less often.
 # Required for ~10k online — see "10k CAPACITY PROFILE" near the end of this file.
 
 # Defer playerbots_random_bots event writes and flush in batches (seconds).
@@ -1529,8 +1539,8 @@ AiPlayerbot.RandomBotsPerInterval = 25
 AiPlayerbot.RandomBotEventPersistInterval = 60
 
 # Max random-bot logout saves processed per manager update cycle (spreads mass logout spikes).
-# Default: 8
-AiPlayerbot.RandomBotLogoutSavesPerInterval = 8
+# Default: 2
+AiPlayerbot.RandomBotLogoutSavesPerInterval = 2
 
 # Skip PlayerbotRepository save on logout when AI context was not modified since login.
 # Default: 1 (enabled)
@@ -2510,13 +2520,13 @@ AiPlayerbot.AllowedLogFiles = ""
 #   AiPlayerbot.RandomBotInitUpdateInterval = 5
 #   AiPlayerbot.RandomBotInitCompleteRatio = 0.95
 #   AiPlayerbot.RandomBotEventPersistInterval = 60
-#   AiPlayerbot.RandomBotLogoutSavesPerInterval = 8
+#   AiPlayerbot.RandomBotLogoutSavesPerInterval = 2
 #   AiPlayerbot.RandomBotRepositoryDirtyOnly = 1
 #   AiPlayerbot.AllowedLogFiles = ""
 #
 # Also set in worldserver.conf:
-#   Save.Interval = 900
-#   (or 1800 on very large populations)
+#   PlayerSaveInterval = 900000
+#   (or 1800000 on very large populations)
 #
 # MySQL: install conf/my.ini.recommended via conf/install-my.ini.bat
 # (skip-log-bin, innodb_flush_log_at_trx_commit=2, adequate max_connections).

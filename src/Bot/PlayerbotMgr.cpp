@@ -5,8 +5,10 @@
 
 #include "PlayerbotMgr.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 #include <string>
 #include <unordered_set>
 #include <openssl/sha.h>
@@ -34,6 +36,7 @@
 #include "PlayerbotGuildMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "SharedDefines.h"
+#include "World.h"
 #include "WorldSession.h"
 #include "BroadcastHelper.h"
 #include "WorldSessionMgr.h"
@@ -408,6 +411,30 @@ void PlayerbotHolder::ProcessPendingLogoutSaves(uint32 maxCount)
     }
 }
 
+void PlayerbotHolder::DrainPendingLogoutSaves()
+{
+    constexpr uint32 batchSize = 8;
+    constexpr std::size_t maxCharacterDatabaseQueueSize = 256;
+
+    while (!pendingLogoutBots.empty())
+    {
+        ProcessPendingLogoutSaves(batchSize);
+
+        auto nextWarning = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (CharacterDatabase.QueueSize() > maxCharacterDatabaseQueueSize)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+            if (std::chrono::steady_clock::now() >= nextWarning)
+            {
+                LOG_WARN("playerbots", "Shutdown is waiting for CharacterDatabase queue to drain ({} pending).",
+                    CharacterDatabase.QueueSize());
+                nextWarning = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            }
+        }
+    }
+}
+
 void PlayerbotMgr::CancelLogout()
 {
     Player* master = GetMaster();
@@ -457,14 +484,19 @@ void PlayerbotHolder::LogoutPlayerBot(ObjectGuid guid)
         if (!botAI)
             return;
 
-        // Queue group cleanup operation for world thread
+        bool const isRandomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
+
+        // Complete group repository cleanup directly once the world update loop has stopped.
         auto cleanupOp = std::make_unique<BotLogoutGroupCleanupOperation>(guid);
-        PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(cleanupOp));
+        if (World::IsStopped())
+            cleanupOp->Execute();
+        else
+            PlayerbotWorldThreadProcessor::instance().QueueOperation(std::move(cleanupOp));
 
         LOG_DEBUG("playerbots", "Bot {} logging out", bot->GetName().c_str());
 
         // Remove taxi cheat flag on alts.
-        if (!sRandomPlayerbotMgr.IsRandomBot(bot) && bot->isTaxiCheater())
+        if (!isRandomBot && bot->isTaxiCheater())
             bot->SetTaxiCheater(false);
 
         sRandomPlayerbotMgr.FlushEventCacheForBot(bot->GetGUID().GetCounter());
@@ -472,10 +504,6 @@ void PlayerbotHolder::LogoutPlayerBot(ObjectGuid guid)
         // Keep DK honor wiped while they are disabled for vanilla progression.
         if (sPlayerbotAIConfig.disableDeathKnightLogin && bot->getClass() == CLASS_DEATH_KNIGHT)
             bot->SetHonorPoints(0);
-
-        bot->SaveToDB(false, false);
-        if (sRandomPlayerbotMgr.IsRandomBot(bot))
-            ++sPlayerbotAIConfig.dbPerfStats.randomBotSaveToDB;
 
         WorldSession* botWorldSessionPtr = bot->GetSession();
         [[maybe_unused]] WorldSession* masterWorldSessionPtr = nullptr;     // Remove [[maybe_unused]] tag if timed logout implemented.
@@ -515,6 +543,8 @@ void PlayerbotHolder::LogoutPlayerBot(ObjectGuid guid)
                 "goodbye", "Goodbye!", {});
             botAI->TellMaster(message);
             RemoveFromPlayerbotsMap(guid);              // deletes bot player ptr inside this WorldSession PlayerBotMap
+            if (isRandomBot)
+                ++sPlayerbotAIConfig.dbPerfStats.randomBotSaveToDB;
             botWorldSessionPtr->LogoutPlayer(true);     // this will delete the bot Player object and PlayerbotAI object
             delete botWorldSessionPtr;                  // finally delete the bot's WorldSession
         }

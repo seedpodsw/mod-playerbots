@@ -45,6 +45,7 @@ public:
     void LogoutAllBots();
     void QueueLogoutPlayerBot(ObjectGuid guid);
     void ProcessPendingLogoutSaves(uint32 maxCount);
+    void DrainPendingLogoutSaves();
     void OnBotLogin(Player* const bot);
 
     std::vector<std::string> HandlePlayerbotCommand(char const* args, Player* master = nullptr);

@@ -172,6 +172,8 @@ public:
     uint32 minRandomBotsPriceChangeInterval, maxRandomBotsPriceChangeInterval;
     uint32 disabledWithoutRealPlayerLoginDelay, disabledWithoutRealPlayerLogoutDelay;
     bool randomBotJoinLfg;
+    // Max level gap allowed in a DF proposal / bot auto-join (0 = disabled)
+    uint32 lfgMaxLevelDiff;
 
     // Professions
     bool enableFishingWithMaster;

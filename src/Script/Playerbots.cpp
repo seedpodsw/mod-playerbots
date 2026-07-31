@@ -424,19 +424,57 @@ public:
     bool OnPlayerbotCheckLFGQueue(lfg::Lfg5Guids const& guidsList) override
     {
         bool nonBotFound = false;
+        uint8 minLevel = 255;
+        uint8 maxLevel = 0;
 
-        for (ObjectGuid const& guid : guidsList.guids)
+        // Prefer roles map (individual players in the proposal) for level checks
+        if (guidsList.roles)
         {
-            Player* player = ObjectAccessor::FindPlayer(guid);
-
-            if (guid.IsGroup() || (player && !PlayerbotsMgr::instance().GetPlayerbotAI(player)))
+            for (auto const& entry : *guidsList.roles)
             {
-                nonBotFound = true;
-                break;
+                Player* player = ObjectAccessor::FindPlayer(entry.first);
+                if (!player)
+                    continue;
+
+                uint8 const level = player->GetLevel();
+                if (level < minLevel)
+                    minLevel = level;
+                if (level > maxLevel)
+                    maxLevel = level;
+
+                if (!PlayerbotsMgr::instance().GetPlayerbotAI(player))
+                    nonBotFound = true;
+            }
+        }
+        else
+        {
+            for (ObjectGuid const& guid : guidsList.guids)
+            {
+                Player* player = ObjectAccessor::FindPlayer(guid);
+
+                if (guid.IsGroup() || (player && !PlayerbotsMgr::instance().GetPlayerbotAI(player)))
+                    nonBotFound = true;
+
+                if (player)
+                {
+                    uint8 const level = player->GetLevel();
+                    if (level < minLevel)
+                        minLevel = level;
+                    if (level > maxLevel)
+                        maxLevel = level;
+                }
             }
         }
 
-        return nonBotFound;
+        if (!nonBotFound)
+            return false;
+
+        // Reject proposals with players too far apart in level (e.g. 47 + 21)
+        uint32 const maxDiff = sPlayerbotAIConfig.lfgMaxLevelDiff;
+        if (maxDiff && maxLevel >= minLevel && (maxLevel - minLevel) > maxDiff)
+            return false;
+
+        return true;
     }
 
     void OnPlayerbotCheckKillTask(Player* player, Unit* victim) override
@@ -456,8 +494,16 @@ public:
 
     bool OnPlayerbotCheckUpdatesToSend(Player* player) override
     {
-        PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
+        if (!player || !player->GetSession())
+            return true;
 
+        // Real client sessions must always use the full Map update path.
+        // Relying only on PlayerbotAI::IsRealPlayer() can mis-classify masters
+        // (master unset) and skip CMSG_CAST_SPELL — breaking mounts/taxi/casts.
+        if (!player->GetSession()->IsBot())
+            return true;
+
+        PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
         if (botAI == nullptr)
             return true;
 
@@ -466,42 +512,10 @@ public:
 
     bool OnPlayerbotShouldUpdatePlayer(Player* player) override
     {
-        if (!player)
-            return true;
-
-        PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
-        if (!botAI || !botAI->GetBot() || botAI->IsRealPlayer())
-            return true;
-
-        // Always update bots that must stay responsive.
-        if (player->IsInCombat())
-            return true;
-
-        uint32 const mapId = player->GetMapId();
-        bool const overworld = (mapId == 0 || mapId == 1 || mapId == 530 || mapId == 571);
-        if (!overworld)
-            return true;
-
-        if (player->InBattlegroundQueue())
-            return true;
-
-        if (sLFGMgr->GetState(player->GetGUID()) != lfg::LFG_STATE_NONE)
-            return true;
-
-        Group* group = player->GetGroup();
-        if (group && sLFGMgr->GetState(group->GetGUID()) != lfg::LFG_STATE_NONE)
-            return true;
-
-        // AllowActivity covers rotation, force-near-player, masters, etc. (cached ~4.5s).
-        if (botAI->AllowActivity())
-            return true;
-
-        uint32 skip = sPlayerbotAIConfig.inactiveBotUpdateSkip;
-        if (skip <= 1)
-            return true;
-
-        uint32 const slot = player->GetGUID().GetCounter() + (getMSTime() / 50);
-        return (slot % skip) == 0;
+        // Real clients always update; bots always update too (no InactiveBotUpdateSkip).
+        // Map.cpp still processes real sessions before bots for cast latency.
+        (void)player;
+        return true;
     }
 
     void OnPlayerbotPacketSent(Player* player, WorldPacket const* packet) override
@@ -547,8 +561,12 @@ public:
 
     void OnPlayerbotLogoutBots() override
     {
-        LOG_INFO("playerbots", "Logging out all bots...");
+        uint32 const botCount = sRandomPlayerbotMgr.GetPlayerbotsCount();
+        LOG_INFO("playerbots", "Logging out and saving {} bots...", botCount);
         sRandomPlayerbotMgr.LogoutAllBots();
+        sRandomPlayerbotMgr.DrainPendingLogoutSaves();
+        LOG_INFO("playerbots", "Bot saves queued with CharacterDatabase queue depth {}.",
+            CharacterDatabase.QueueSize());
     }
 };
 

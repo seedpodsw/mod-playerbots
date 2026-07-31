@@ -4965,6 +4965,11 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
     if (activityType == PACKET_ACTIVITY)
         return true;
 
+    // Dead/ghost bots must stay fully active: minimal mode skips revive (relevance < 100)
+    // and InactiveBotUpdateSkip freezes MotionMaster at the graveyard.
+    if (bot->isDead() || bot->HasPlayerFlag(PLAYER_FLAGS_GHOST))
+        return true;
+
     // all bots forced active, no rotation or scaling needed
     if (sPlayerbotAIConfig.botActiveAlone >= 100 && !sPlayerbotAIConfig.botActiveAloneSmartScale)
         return true;
@@ -5154,6 +5159,11 @@ bool PlayerbotAI::AllowActivity(ActivityType activityType, bool checkNow)
     // AllowActive already guards bot, but the stagger offset below runs first.
     if (!bot)
         return false;
+
+    // Bypass the ~4.5s activity cache while dead/ghost so graveyard recovery is not
+    // stuck in minimal mode (passiveDelay + skipped revive) after an inactive tick.
+    if (bot->isDead() || bot->HasPlayerFlag(PLAYER_FLAGS_GHOST))
+        return true;
 
     const int activityIndex = static_cast<int>(activityType);
 
